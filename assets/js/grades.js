@@ -1,0 +1,2393 @@
+/* ============================================================
+      Grading Sheet — client logic (self-contained)
+      ============================================================ */
+const API = 'index.php'; // same-folder relative — grades.js is only ever loaded by index.php (eGradeBook standalone app)
+let SHEET = null; // { students, columns, scores, section }
+let selectedCols = new Set(); // set of column keys ('f12','a3',...)
+let selectedStudents = new Set(); // set of student_no selected for bulk edit
+let sortKey = null;               // null | 'name' | 'grade' — row sort column
+let sortDir = 1;                  // 1 = ascending, -1 = descending
+
+/* Per-student final status overrides */
+const STATUS_FULL = { INC: 'Incomplete', DRP: 'Dropped', W: 'Withdrawn' };
+const stBadge = st => `<span class="st-badge st-${st.toLowerCase()}">${st}</span>`;
+let ALL_SECTIONS = [];        // cached section list (for the Copy-from picker)
+let PINNED = new Set();       // this teacher's chosen sections (subset shown in the picker)
+let SECTION_VIEW = 'pinned';  // 'pinned' = show only PINNED, 'all' = show everything
+
+const $ = id => document.getElementById(id);
+
+/* ── Final grade config ─────────────────────────────────────
+   Final = Midterm(coursework) × CW_WEIGHT + Final(defense) × DEF_WEIGHT
+   (change only if the weights change) */
+const CW_WEIGHT  = 0.50;   // Midterm — coursework (activities/forms)
+const DEF_WEIGHT = 0.50;   // Final term — defense
+
+/* fallback PH transmutation if none has come from the server yet */
+const DEFAULT_EQUIV = [
+    { min: 96, point: 1.00 }, { min: 94, point: 1.25 }, { min: 91, point: 1.50 },
+    { min: 88, point: 1.75 }, { min: 85, point: 2.00 }, { min: 82, point: 2.25 },
+    { min: 79, point: 2.50 }, { min: 76, point: 2.75 }, { min: 75, point: 3.00 },
+];
+
+/* The teacher's live bands — GLOBAL and editable in the Transmutation modal.
+   Set from the sheet payload / get_transmute; falls back to DEFAULT_EQUIV.
+   Single source of truth for BOTH flat Final grade and term Equivalent. */
+let TRANSMUTE = null;
+function equivBands() {
+    if (Array.isArray(TRANSMUTE) && TRANSMUTE.length) return TRANSMUTE;
+    if (SHEET && Array.isArray(SHEET.grade_equiv) && SHEET.grade_equiv.length) return SHEET.grade_equiv;
+    return DEFAULT_EQUIV;
+}
+
+/* 0–100 → 1.00–5.00 (top-down; below the lowest min = 5.00). */
+function transmutePoint(score) {
+    for (const row of equivBands()) {
+        if (score >= Number(row.min)) return Number(row.point).toFixed(2);
+    }
+    return '5.00';
+}
+
+const DEFENSE_PASS = 75;   // defense passing raw (≈ 3.00)
+
+/* defense raw grade (0–100) of the student, or null if none yet.
+   Single source of the defense value for render and export. */
+function defenseRaw(sno) {
+    const r = getRec(sno, 'dfn_raw');
+    return (r && r.score !== '' && r.score !== null) ? parseFloat(r.score) : null;
+}
+
+/* Coursework grade of the student.
+   • Has weights (total > 0): weighted average → Σ(score/max × weight) ÷ Σweight × 100
+   • No weights: legacy points-based → Σscore ÷ Σmax × 100 (includes forms)
+   Returns got/max (raw, for display), pct, gotAny, and a weighted flag. */
+function courseworkGrade(s, missingZero) {
+    const sel   = SHEET.columns.filter(c => selectedCols.has(c.key));
+    const acts  = sel.filter(c => c.type === 'activity');
+    const forms = sel.filter(c => c.type === 'form');
+    /* both activities AND form columns can carry a weight now */
+    const weighables = [...acts, ...forms];
+    const totalW = weighables.reduce((t, c) => t + (Number(c.weight) || 0), 0);
+
+    let got = 0, max = 0, gotAny = false;
+    weighables.forEach(c => {
+        const rec = getRec(s.student_no, c.key);
+        const cmax = c.max || (rec ? rec.max : 0) || 0;
+        if (rec) { got += Number(rec.score) || 0; max += cmax; gotAny = true; }
+        else if (missingZero) max += cmax;
+    });
+
+    if (totalW > 0) {
+        let wGot = 0, wGraded = false;
+        weighables.forEach(c => {
+            const w = Number(c.weight) || 0;
+            if (w <= 0) return;
+            const rec = getRec(s.student_no, c.key);
+            const cmax = c.max || (rec ? rec.max : 0) || 0;
+            if (rec && cmax > 0) { wGot += (Number(rec.score) / cmax * 100) * w; wGraded = true; }
+            /* no score → 0 contribution (missing = 0), but the weight is still included */
+        });
+        return { got, max, gotAny: wGraded, pct: wGot / totalW, weighted: true, totalW };
+    }
+    return { got, max, gotAny, pct: max > 0 ? (got / max * 100) : 0, weighted: false, totalW: 0 };
+}
+
+/* Final grade.
+   • Subject has a defense → coursework × 30% + defense × 70%
+        (null if the student has no defense yet — awaiting)
+   • No defense → coursework only (100%)  */
+function finalGrade(cwPct, hasCw, defRaw, sectionHasDefense) {
+    if (sectionHasDefense) {
+        if (defRaw === null) return null;                 // awaiting the defense
+        const val = cwPct * CW_WEIGHT + defRaw * DEF_WEIGHT;
+        return { val, pt: transmutePoint(val), hasCw, defRaw, mode: 'combined' };
+    }
+    if (!hasCw) return null;                               // no coursework yet
+    return { val: cwPct, pt: transmutePoint(cwPct), hasCw, defRaw: null, mode: 'coursework' };
+}
+
+/* ── Option B: Term-based grading (Midterm/Final × weighted categories) ── */
+/* Term "Equivalent" now uses the SAME global bands as the flat Final grade
+   (one source of truth). Only difference from transmutePoint: below the lowest
+   band returns null, so the Remark column can show "Failed" instead of 5.00. */
+function transmuteExcel(score) {
+    const s = Math.round(score * 10) / 10;   // ROUND(x,1) like Excel
+    for (const row of equivBands()) if (s >= Number(row.min)) return Number(row.point).toFixed(2);
+    return null;   // below the lowest band → Failed
+}
+
+/* Grade of a term (0–100) = Σ (categoryPct × weight) ÷ Σweight × 100 */
+function termGrade(s, term) {
+    const cats = (SHEET.categories || []).filter(c => c.term === term);
+    if (!cats.length) return null;
+    let totalW = 0, acc = 0, anyScore = false;
+    cats.forEach(cat => {
+        /* activities AND form columns assigned to this term + category */
+        const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form') && c.term === term && c.category_id === cat.id);
+        let raw = 0, mx = 0;
+        acts.forEach(a => {
+            const rec = getRec(s.student_no, a.key);
+            mx += a.max || 0;
+            if (rec) { raw += Number(rec.score) || 0; anyScore = true; }
+        });
+        const catPct = mx > 0 ? (raw / mx) : 0;     // 0..1
+        acc += catPct * (Number(cat.weight) || 0);
+        totalW += Number(cat.weight) || 0;
+    });
+    if (totalW <= 0) return null;
+    return { grade: acc / totalW * 100, anyScore, totalW };
+}
+
+/* General Average = (Midterm + Final) ÷ 2 (or if only one term, that one) */
+function generalAverage(s) {
+    const mid = termGrade(s, 'midterm');
+    const fin = termGrade(s, 'final');
+    if (mid && fin) return { ave: (mid.grade + fin.grade) / 2, mid, fin, anyScore: mid.anyScore || fin.anyScore };
+    if (mid) return { ave: mid.grade, mid, fin: null, anyScore: mid.anyScore };
+    if (fin) return { ave: fin.grade, mid: null, fin, anyScore: fin.anyScore };
+    return null;
+}
+
+/* ── Row sorting (by name or final grade) ───────────────── */
+function studentSortVal(s, key) {
+    if (key === 'name') return (s.fullname || '').toLowerCase();
+    if (key === 'grade') {
+        if (SHEET.term_mode === true) {
+            const ga = generalAverage(s);
+            return (ga && ga.anyScore) ? ga.ave : null;   // ungraded → null (sorted last)
+        }
+        const cg = courseworkGrade(s, $('chkMissingZero').checked);
+        return cg.gotAny ? cg.pct : null;
+    }
+    return null;
+}
+
+function sortStudents(list) {
+    if (!sortKey) return list;
+    return list.slice().sort((a, b) => {
+        const va = studentSortVal(a, sortKey);
+        const vb = studentSortVal(b, sortKey);
+        if (va === null && vb === null) return 0;          // keep ungraded together, always last
+        if (va === null) return 1;
+        if (vb === null) return -1;
+        if (typeof va === 'string') return sortDir * va.localeCompare(vb);
+        return sortDir * (va - vb);
+    });
+}
+
+const sortArrow = k => sortKey !== k ? ''
+    : (sortDir === 1 ? ' <i class="bi bi-caret-up-fill sort-ar"></i>' : ' <i class="bi bi-caret-down-fill sort-ar"></i>');
+
+async function apiGet(params) {
+    const qs = new URLSearchParams(params);
+    const res = await fetch(`${API}?${qs}`);
+    const txt = await res.text();
+    try {
+        return JSON.parse(txt);
+    } catch (e) {
+        console.error('non-JSON:', txt);
+        return {
+            success: false,
+            message: txt.slice(0, 200)
+        };
+    }
+}
+async function apiPost(params) {
+    const fd = new FormData();
+    Object.entries(params).forEach(([k, v]) => fd.append(k, v));
+    const res = await fetch(API, {
+        method: 'POST',
+        body: fd
+    });
+    const txt = await res.text();
+    try {
+        return JSON.parse(txt);
+    } catch (e) {
+        console.error('non-JSON:', txt);
+        return {
+            success: false,
+            message: txt.slice(0, 200)
+        };
+    }
+}
+
+/* ── Load sections on start ─────────────────────────────── */
+async function loadSections() {
+    const sel = $('selSection');
+    /* fetch the full section list + this teacher's pinned subset in parallel */
+    const [d, p] = await Promise.all([
+        apiGet({ api: 'sections' }),
+        apiGet({ api: 'pinned_sections' })
+    ]);
+    if (!d.success) {
+        sel.innerHTML = `<option value="">⚠ ${escAttr(d.message || 'Error')}</option>`;
+        return;
+    }
+    if (!d.sections.length) {
+        sel.innerHTML = `<option value="">No sections found</option>`;
+        return;
+    }
+    ALL_SECTIONS = d.sections;
+    PINNED = new Set((p && p.success && Array.isArray(p.pinned)) ? p.pinned : []);
+    /* if nothing pinned yet, default the picker to "All" so it isn't empty */
+    if (PINNED.size === 0) SECTION_VIEW = 'all';
+    renderSectionOptions();
+}
+
+/* ── Render the section <select>, filtered by the current view ── */
+function renderSectionOptions() {
+    const sel = $('selSection');
+    const current = sel.value;   // keep the current pick if still visible
+
+    const usePinned = (SECTION_VIEW === 'pinned' && PINNED.size > 0);
+    const list = usePinned ? ALL_SECTIONS.filter(s => PINNED.has(s.section)) : ALL_SECTIONS;
+
+    /* update the My/All toggle chip */
+    const chip = $('pinViewToggle');
+    if (chip) {
+        chip.textContent = usePinned ? 'My sections' : 'All sections';
+        chip.classList.toggle('is-all', !usePinned);
+        chip.title = usePinned
+            ? 'Showing your pinned sections — tap to show all'
+            : 'Showing all sections — tap to show only your pinned ones';
+    }
+
+    if (!list.length) {
+        sel.innerHTML = `<option value="">No pinned sections — tap ⚙ to add</option>`;
+        return;
+    }
+    sel.innerHTML = `<option value="">— Select section —</option>` +
+        list.map(s => {
+            const label = (s.course ? s.course + ' · ' : '') + s.section + ` (${s.count})`;
+            return `<option value="${escAttr(s.section)}">${escAttr(label)}</option>`;
+        }).join('');
+
+    /* restore the previous selection if it's still in the filtered list */
+    if (current && list.some(s => s.section === current)) sel.value = current;
+}
+
+/* ── Toggle between "My sections" and "All sections" ─────── */
+function toggleSectionView() {
+    SECTION_VIEW = (SECTION_VIEW === 'pinned') ? 'all' : 'pinned';
+    renderSectionOptions();
+}
+
+/* ── Manage-sections modal ──────────────────────────────── */
+let pinDraft = new Set();   // working copy while the modal is open
+
+function openPinModal() {
+    pinDraft = new Set(PINNED);
+    $('pinSearch').value = '';
+    buildPinList('');
+    $('pinModal').classList.add('show');
+}
+function closePinModal() { $('pinModal').classList.remove('show'); }
+
+function buildPinList(filter) {
+    const wrap = $('pinList');
+    const q = (filter || '').trim().toLowerCase();
+    const rows = ALL_SECTIONS.filter(s => {
+        if (!q) return true;
+        return (s.section + ' ' + (s.course || '')).toLowerCase().includes(q);
+    });
+    if (!rows.length) {
+        wrap.innerHTML = `<div class="pin-empty">No sections match "${escHtml(filter)}".</div>`;
+    } else {
+        wrap.innerHTML = rows.map(s => {
+            const checked = pinDraft.has(s.section) ? 'checked' : '';
+            const course = s.course ? `<span class="pin-meta">${escHtml(s.course)} · ${s.count} students</span>` : `<span class="pin-meta">${s.count} students</span>`;
+            return `<label class="pin-row">
+                        <input type="checkbox" data-section="${escAttr(s.section)}" ${checked}>
+                        <span class="pin-name">${escHtml(s.section)}</span>
+                        ${course}
+                    </label>`;
+        }).join('');
+    }
+    updatePinCount();
+}
+
+function updatePinCount() {
+    $('pinCount').textContent = `${pinDraft.size} selected`;
+}
+
+async function savePinnedSections() {
+    const btn = $('pinSave');
+    btn.disabled = true;
+    const arr = [...pinDraft];
+    const d = await apiPost({ api: 'save_pinned_sections', sections: JSON.stringify(arr) });
+    btn.disabled = false;
+    if (!d.success) { showToastSafe(d.message || 'Could not save.', 'error'); return; }
+
+    PINNED = new Set(arr);
+    /* if they pinned something, snap back to "My sections" view */
+    SECTION_VIEW = (PINNED.size > 0) ? 'pinned' : 'all';
+    renderSectionOptions();
+    closePinModal();
+    showToastSafe(`Saved — ${PINNED.size} section${PINNED.size === 1 ? '' : 's'} in your list.`, 'success');
+}
+
+/* ── Load a section's sheet ─────────────────────────────── */
+async function loadSheet(section) {
+    if (!section) {
+        SHEET = null;
+        $('btnAddActivity').title = 'Select a section first';
+        $('gsStats').style.display = 'none';
+        $('gsColumns').style.display = 'none';
+        $('gsArea').innerHTML = `<div class="gs-empty"><i class="bi bi-table"></i>Select a section above to view the grading sheet.</div>`;
+        return;
+    }
+    $('gsArea').innerHTML = `<div class="gs-empty"><div class="spinner-accent" style="margin:0 auto 1rem;"></div>Loading grading sheet…</div>`;
+    const d = await apiGet({
+        api: 'sheet',
+        section
+    });
+    if (!d.success) {
+        $('gsArea').innerHTML = `<div class="gs-empty"><i class="bi bi-exclamation-triangle"></i>${escHtml(d.message || 'Error loading sheet')}</div>`;
+        return;
+    }
+    const prevSection = SHEET ? SHEET.section : null;
+    SHEET = d;
+    if (Array.isArray(d.grade_equiv) && d.grade_equiv.length) TRANSMUTE = d.grade_equiv;   // keep global bands in sync
+    if (prevSection !== d.section) selectedStudents.clear();   // reset selection on the new section
+    $('btnAddActivity').title = '';
+    /* default selected: columns that have content; activities always checked */
+    selectedCols = new Set(d.columns.filter(c => c.type === 'activity' || c.responded > 0).map(c => c.key));
+    if (selectedCols.size === 0) d.columns.forEach(c => selectedCols.add(c.key));
+    renderColumnPicker();
+
+    /* term grading (Option B) */
+    $('chkTermMode').checked = d.term_mode === true;
+    $('btnGradeSetup').style.display = d.term_mode === true ? '' : 'none';
+
+    render();
+}
+
+/* ── Column picker ──────────────────────────────────────── */
+function renderColumnPicker() {
+    const box = $('colTags');
+    if (!SHEET.columns.length) {
+        $('gsColumns').style.display = 'none';
+        return;
+    }
+    $('gsColumns').style.display = 'block';
+    box.innerHTML = SHEET.columns.map(c => {
+        const on = selectedCols.has(c.key);
+        const icon = c.type === 'activity' ? '<i class="bi bi-pencil-square" style="color:var(--accent2)"></i> '
+                   : c.type === 'defense'  ? '<i class="bi bi-shield-check" style="color:var(--accent)"></i> '
+                   : '';
+        const meta = c.type === 'defense'
+                   ? `${c.responded}/${SHEET.students.length} · live`
+                   : `${c.responded}/${SHEET.students.length} · ${c.max || '?'} pts`;
+        return `<label class="gs-tag ${on ? 'on' : ''}" data-key="${c.key}">
+                        <input type="checkbox" ${on ? 'checked' : ''}>
+                        ${icon}${escHtml(c.title)}
+                        <span class="ct">${meta}</span>
+                    </label>`;
+    }).join('');
+    box.querySelectorAll('.gs-tag').forEach(tag => {
+        tag.querySelector('input').addEventListener('change', e => {
+            const key = tag.dataset.key;
+            if (e.target.checked) {
+                selectedCols.add(key);
+                tag.classList.add('on');
+            } else {
+                selectedCols.delete(key);
+                tag.classList.remove('on');
+            }
+            render();
+        });
+    });
+}
+
+/* get a student's record for a column */
+function getRec(studentNo, key) {
+    return (SHEET.scores[studentNo] || {})[key];
+}
+
+/* ── Render the sheet ───────────────────────────────────── */
+function render() {
+    if (!SHEET) return;
+    const pass = clampPct(parseFloat($('numPass').value) || 0);
+    const missingZero = $('chkMissingZero').checked;
+    const search = $('txtSearch').value.trim().toLowerCase();
+
+    let cols = SHEET.columns.filter(c => selectedCols.has(c.key));
+    const termMode = SHEET.term_mode === true;
+    if (termMode) {
+        /* Group by term ONLY (Midterm → Final). Within each term, the
+           manual drag order (sort_order in SHEET.columns) is what's followed.
+           Array.sort is stable so the drag order is preserved when the
+           term is the same (return 0). This doesn't affect computation — the
+           termGrade() filters by term + category_id, not by position. */
+        const termRank = t => (t === 'midterm' ? 0 : t === 'final' ? 1 : 2);
+        cols = cols.slice().sort((a, b) => {
+            if (a.type !== 'activity' || b.type !== 'activity') return 0;
+            return termRank(a.term) - termRank(b.term);
+        });
+    }
+    /* A search that is exactly a status code ("inc"/"drp"/"w") is treated as a
+       status-only filter — otherwise a bare "w" would also match every name
+       containing "w". Anything else does a normal contains-match on name,
+       student no., and the full status label ("incomplete"/"withdrawn"…). */
+    const codeSearch = search && STATUS_FULL[search.toUpperCase()] ? search.toUpperCase() : null;
+    let students = SHEET.students.filter(s => {
+        if (!search) return true;
+        const st = (SHEET.statuses || {})[s.student_no] || '';
+        if (codeSearch) return st === codeSearch;
+        const stText = st ? (st + ' ' + (STATUS_FULL[st] || '')).toLowerCase() : '';
+        return (s.fullname || '').toLowerCase().includes(search)
+            || (s.student_no || '').toLowerCase().includes(search)
+            || stText.includes(search);
+    });
+
+    if (!students.length) {
+        const msg = search ? 'No matching student.' : 'No students found in this section.';
+        $('gsArea').innerHTML = `<div class="gs-empty"><i class="bi bi-person-x"></i>${msg}</div>`;
+        $('gsStats').style.display = 'none';
+        return;
+    }
+
+    students = sortStudents(students);
+
+    const hasCols = cols.length > 0;
+    const hasDefense = false;   // no live defense — activity/import is the only channel
+    const hasCourse  = SHEET.columns.some(c => c.type === 'activity' || c.type === 'form');
+    const hasFinal   = hasCourse || hasDefense;   // final gumagana may defense man o wala
+
+    let head = `<tr><th class="col-sel"><input type="checkbox" id="selAllRows" title="Select all"></th><th class="col-no">#</th><th class="col-name sortable" data-sort="name" title="Sort by name" style="text-align:left;">Student${sortArrow('name')}</th>`;
+    cols.forEach(c => {
+        if (c.type === 'activity') {
+            let sub;
+            if (termMode) {
+                const cats = (SHEET.categories || []).filter(k => k.term === c.term);
+                const catOpts = `<option value="">cat?</option>` + cats.map(k =>
+                    `<option value="${k.id}" ${k.id === c.category_id ? 'selected' : ''}>${escHtml(k.name)}</option>`).join('');
+                sub = `<span class="sub sub-term">
+                        <span class="tc-row">
+                            <select class="act-term-edit" data-aid="${c.id}" data-key="${c.key}" data-tip="Term (Midterm / Final)">
+                                <option value="" ${!c.term ? 'selected' : ''}>term?</option>
+                                <option value="midterm" ${c.term === 'midterm' ? 'selected' : ''}>Midterm</option>
+                                <option value="final" ${c.term === 'final' ? 'selected' : ''}>Final</option>
+                            </select>
+                            <select class="act-cat-edit" data-aid="${c.id}" data-key="${c.key}" data-tip="Category">${catOpts}</select>
+                        </span>
+                        <span class="mx">max <input type="number" class="act-max-edit" min="1" value="${c.max || 100}" data-aid="${c.id}" data-key="${c.key}" data-tip="Maximum points"></span>
+                    </span>`;
+            } else {
+                sub = `<span class="sub">/
+                                <input type="number" class="act-max-edit" min="1" value="${c.max || 100}"
+                                    data-aid="${c.id}" data-key="${c.key}" data-tip="Maximum points"> ·
+                                <input type="number" class="act-wt-edit" min="0" step="1" value="${(+c.weight || 0)}"
+                                    data-aid="${c.id}" data-key="${c.key}" data-tip="Weight % (Excel-style; 0 = no weight)">% wt</span>`;
+            }
+            let _catName = '';
+            if (termMode) {
+                const _kc = (SHEET.categories || []).find(k => k.id === c.category_id && k.term === c.term);
+                _catName = _kc ? _kc.name : '';
+            }
+            const _printBits = termMode
+                ? [c.term ? (c.term === 'midterm' ? 'Midterm' : 'Final') : '', _catName, `max ${c.max || 100}`].filter(Boolean)
+                : [`max ${c.max || 100}`, (+c.weight > 0 ? `${+c.weight}% wt` : '')].filter(Boolean);
+            const _printSub = `<span class="act-print-sub">${_printBits.map(escHtml).join(' · ')}</span>`;
+            head += `<th class="act-col ${c.linked ? 'is-linked' : ''}" data-aid="${c.id}" data-colkey="${c.key}"><span class="act-head">
+                            <span class="act-drag" draggable="true" data-colkey="${c.key}" data-tip="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
+                            <input type="text" class="act-title-edit" value="${escAttr(c.title)}"
+                                data-aid="${c.id}" data-key="${c.key}" data-tip="Click to rename">
+                            <button class="act-link ${c.linked ? 'on' : ''}" data-aid="${c.id}" data-key="${c.key}" data-tip="${c.linked ? 'Sync ON — editing a score updates every cell with the same value. Click to turn off.' : 'Sync same scores — when ON, editing a cell also updates all cells that share the same value.'}"><i class="bi bi-link-45deg"></i></button>
+                            <button class="act-fill" data-aid="${c.id}" data-tip="Fill the same score for all students"><i class="bi bi-arrow-bar-down"></i></button>
+                            <button class="act-del" data-aid="${c.id}" data-tip="Delete this activity">&times;</button></span>
+                            ${sub}<span class="act-print">${escHtml(c.title)}${_printSub}</span></th>`;
+        } else if (c.type === 'defense') {
+            const subTxt = c.scale === '5' ? 'defense · 1.00–5.00' : 'defense · live avg';
+            head += `<th class="dfn-col" title="From defense panel (live, read-only)">${escHtml(c.title)}<span class="sub">${subTxt}</span></th>`;
+        } else if (c.type === 'form') {
+            /* Form column (from FormFlow). Title / max / scores are READ-ONLY
+               here — only the eGradeBook overlay (term, category, weight, order)
+               is editable, so it can join term-mode / weighted grading. */
+            let fsub;
+            if (termMode) {
+                const cats = (SHEET.categories || []).filter(k => k.term === c.term);
+                const catOpts = `<option value="">cat?</option>` + cats.map(k =>
+                    `<option value="${k.id}" ${k.id === c.category_id ? 'selected' : ''}>${escHtml(k.name)}</option>`).join('');
+                fsub = `<span class="sub sub-term">
+                        <span class="tc-row">
+                            <select class="frm-term-edit" data-fid="${c.id}" data-key="${c.key}" data-tip="Term (Midterm / Final)">
+                                <option value="" ${!c.term ? 'selected' : ''}>term?</option>
+                                <option value="midterm" ${c.term === 'midterm' ? 'selected' : ''}>Midterm</option>
+                                <option value="final" ${c.term === 'final' ? 'selected' : ''}>Final</option>
+                            </select>
+                            <select class="frm-cat-edit" data-fid="${c.id}" data-key="${c.key}" data-tip="Category">${catOpts}</select>
+                        </span>
+                        <span class="mx">max <b>${c.max || '?'}</b> <span class="frm-ro" data-tip="Set in FormFlow">FormFlow</span></span>
+                    </span>`;
+            } else {
+                fsub = `<span class="sub">/ <b>${c.max || '?'}</b> ·
+                            <input type="number" class="frm-wt-edit" min="0" step="1" value="${(+c.weight || 0)}"
+                                data-fid="${c.id}" data-key="${c.key}" data-tip="Weight % (Excel-style; 0 = no weight)">% wt</span>`;
+            }
+            let _fcatName = '';
+            if (termMode) {
+                const _fkc = (SHEET.categories || []).find(k => k.id === c.category_id && k.term === c.term);
+                _fcatName = _fkc ? _fkc.name : '';
+            }
+            const _fprintBits = termMode
+                ? [c.term ? (c.term === 'midterm' ? 'Midterm' : 'Final') : '', _fcatName, `max ${c.max || '?'}`].filter(Boolean)
+                : [`max ${c.max || '?'}`, (+c.weight > 0 ? `${+c.weight}% wt` : '')].filter(Boolean);
+            const _fprintSub = `<span class="act-print-sub">${_fprintBits.map(escHtml).join(' · ')}</span>`;
+            head += `<th class="act-col frm-col" data-colkey="${c.key}"><span class="act-head">
+                            <span class="act-drag" draggable="true" data-colkey="${c.key}" data-tip="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
+                            <span class="frm-title" data-tip="From FormFlow — rename it there"><i class="bi bi-ui-checks-grid frm-ic"></i>${escHtml(c.title)}</span></span>
+                            ${fsub}<span class="act-print">${escHtml(c.title)}${_fprintSub}</span></th>`;
+        } else {
+            head += `<th>${escHtml(c.title)}<span class="sub">/ ${c.max || '?'}</span></th>`;
+        }
+    });
+    if (termMode) {
+        head += `<th class="fin-col" title="Midterm Grade (100%)">Midterm</th>`
+              + `<th class="fin-col" title="Final Grade (100%)">Final</th>`
+              + `<th class="fin-col sortable" data-sort="grade" title="Sort by general average">General Ave${sortArrow('grade')}</th>`
+              + `<th class="fin-col" title="Transmuted (bands mo)">Equivalent</th>`
+              + `<th>Remark</th>`;
+    } else {
+        if (hasCols) head += `<th class="col-total">Total</th><th class="col-pct sortable" data-sort="grade" title="Sort by grade">%${sortArrow('grade')}</th><th>Remark</th>`;
+        if (hasDefense) head += `<th class="dfn-col" title="Verdict base sa defense grade (pass ≥ 75)">Defense</th>`;
+        if (hasFinal) {
+            if (hasDefense) {
+                head += `<th class="fin-col" title="(Midterm + Final defense) ÷ 2">Final Average</th>`
+                      + `<th class="fin-col" title="Final na na-transmute sa 1.00–5.00">Final (1.00–5.00)</th>`;
+            } else {
+                head += `<th class="fin-col" title="Coursework only (no defense in this subject)">Final</th>`
+                      + `<th class="fin-col" title="Final na na-transmute sa 1.00–5.00">Final (1.00–5.00)</th>`;
+            }
+        }
+    }
+    head += `</tr>`;
+
+    let body = '';
+    let pctSum = 0,
+        pctN = 0,
+        passCount = 0;
+
+    students.forEach((s, i) => {
+        let cells = '';
+        cols.forEach(c => {
+            const rec = getRec(s.student_no, c.key);
+            const cmax = c.max || (rec ? rec.max : 0) || 0;
+            if (c.type === 'activity') {
+                const val = rec ? rec.score : '';
+                cells += `<td class="act-cell"><input type="number" class="act-score ${c.linked ? 'sync-on' : ''}" min="0" max="${c.max}"
+                                value="${val}" data-aid="${c.id}" data-sno="${escAttr(s.student_no)}" data-key="${c.key}"></td>`;
+            } else if (c.type === 'defense') {
+                /* LIVE read-only — display-only, EXCLUDED from Total / % / Remark
+                   so the 1.00–5.00 point doesn't distort the points-based total */
+                if (rec && rec.score !== '' && rec.score !== null) {
+                    let disp, ok;
+                    if (c.scale === '5') {            // transmuted point — lower is better
+                        const pt = parseFloat(rec.score);
+                        disp = pt.toFixed(2);
+                        ok = pt <= 3.00;
+                    } else {                           // raw 0–100 average
+                        const v = parseFloat(rec.score);
+                        disp = v.toFixed(2);
+                        ok = v >= pass;
+                    }
+                    const isGroup = rec.src === 'group';
+                    const srcLbl = isGroup ? 'group' : 'individual';
+                    const badge = isGroup ? ' <span class="dfn-src">G</span>' : '';
+                    cells += `<td class="dfn-cell ${ok ? 'cell-pass' : 'cell-fail'}" title="From defense panel (live · ${srcLbl} grade)">${disp}${badge}</td>`;
+                } else {
+                    cells += `<td class="dfn-cell cell-miss">—</td>`;
+                }
+            } else if (rec) {
+                const cellPass = cmax > 0 ? (rec.score / cmax * 100) >= pass : true;
+                const penNote = rec.penalty > 0 ? ` title="raw ${rec.raw} − penalty ${rec.penalty}"` : '';
+                cells += `<td class="${cellPass ? 'cell-pass' : 'cell-fail'}"${penNote}>${rec.score}</td>`;
+            } else {
+                cells += `<td class="cell-miss">—</td>`;
+            }
+        });
+        const cg = courseworkGrade(s, missingZero);
+        const got = cg.got, max = cg.max;
+        const graded = cg.gotAny;              // has at least one actual coursework score
+        const pct = cg.pct;
+        const isPass = pct >= pass;
+        /* only include students with an actual score in class stats */
+        if (hasCols && graded) {
+            pctSum += pct;
+            pctN++;
+            if (isPass) passCount++;
+        }
+
+        let tail = '';
+        const stStatus = (SHEET.statuses || {})[s.student_no] || '';
+        if (termMode) {
+            /* ── Option B: Midterm / Final / General Ave / Equivalent / Remark ── */
+            const ga = generalAverage(s);
+            const fmt = t => (t ? t.grade.toFixed(1) : '—');
+            const graded2 = !!(ga && ga.anyScore);
+            const equiv = graded2 ? transmuteExcel(ga.ave) : null;   // null if < 75 (Failed)
+            const passed = equiv !== null;
+            tail += `<td class="fin-cell" title="Midterm term grade">${graded2 ? fmt(ga.mid) : '—'}</td>`
+                  + `<td class="fin-cell" title="Final term grade">${graded2 ? fmt(ga.fin) : '—'}</td>`
+                  + `<td class="fin-cell" title="(Midterm + Final) ÷ 2">${graded2 ? `<b>${ga.ave.toFixed(2)}</b>` : '—'}</td>`;
+            if (stStatus) {
+                tail += `<td class="fin-cell st-cell">${stBadge(stStatus)}</td>`
+                      + `<td class="status-remark">${STATUS_FULL[stStatus] || stStatus}</td>`;
+            } else if (graded2) {
+                tail += `<td class="fin-cell ${passed ? 'cell-pass' : 'cell-fail'}">${equiv !== null ? equiv : '5.00'}</td>`
+                      + `<td class="${passed ? 'remark-pass' : 'remark-fail'}">${passed ? 'Passed' : 'Failed'}</td>`;
+                if (passed) passCount++;
+                pctN++;
+                pctSum += ga.ave;
+            } else {
+                tail += `<td class="fin-cell cell-miss">—</td><td class="cell-miss">Not graded</td>`;
+            }
+        } else {
+        if (hasCols) {
+            const pctTitle = cg.weighted ? ' title="weighted average"' : '';
+            const totCell = cg.weighted
+                ? `<td class="col-total" title="raw points (di kasama sa weighted %)">${got}<span style="color:var(--muted);font-weight:400;"> / ${max}</span></td>`
+                : `<td class="col-total">${got}<span style="color:var(--muted);font-weight:400;"> / ${max}</span></td>`;
+            const remarkCell = stStatus
+                ? `<td class="status-remark">${STATUS_FULL[stStatus] || stStatus}</td>`
+                : graded ? `<td class="${isPass ? 'remark-pass' : 'remark-fail'}">${isPass ? 'Passed' : 'Failed'}</td>`
+                         : `<td class="cell-miss">Not graded</td>`;
+            tail = graded
+                ? `${totCell}
+                   <td class="col-pct ${isPass ? 'pct-pass' : 'pct-fail'}"${pctTitle}>${pct.toFixed(1)}%${cg.weighted ? ' <span class="wt-mark">w</span>' : ''}</td>
+                   ${remarkCell}`
+                : `<td class="col-total cell-miss">—</td>
+                   <td class="col-pct cell-miss">—</td>
+                   ${remarkCell}`;
+        }
+        /* Defense verdict — derived directly from the defense grade (pass ≥ 75 / ≤ 3.00),
+           separate from the coursework Total to make the official defense pass clear */
+        if (hasDefense) {
+            const dv = defenseRaw(s.student_no);
+            if (dv !== null) {
+                const dpass = dv >= DEFENSE_PASS;
+                tail += `<td class="${dpass ? 'remark-pass' : 'remark-fail'}" title="Defense grade ${dv.toFixed(2)} (pass ≥ ${DEFENSE_PASS})">${dpass ? 'Passed' : 'Failed'}</td>`;
+            } else {
+                tail += `<td class="cell-miss">—</td>`;
+            }
+        }
+        if (hasFinal) {
+            const dv = defenseRaw(s.student_no);
+            const fg = finalGrade(pct, graded, dv, hasDefense);
+            if (fg) {
+                const fpass  = fg.val >= pass;
+                const ptPass = parseFloat(fg.pt) <= 3.00;
+                const cwNote = fg.hasCw ? `${pct.toFixed(1)}%` : '0% (no coursework, 0)';
+                const tip = fg.mode === 'combined'
+                    ? `Midterm ${cwNote} · Final defense ${dv.toFixed(2)}`
+                    : `Coursework only ${cwNote} (no defense)`;
+                tail += `<td class="fin-cell ${fpass ? 'cell-pass' : 'cell-fail'}" title="${tip}">${fg.val.toFixed(2)}</td>`
+                      + (stStatus ? `<td class="fin-cell st-cell">${stBadge(stStatus)}</td>` : `<td class="fin-cell ${ptPass ? 'cell-pass' : 'cell-fail'}">${fg.pt}</td>`);
+            } else {
+                const why = hasDefense ? 'waiting for defense grade' : 'not graded yet';
+                tail += `<td class="fin-cell cell-miss" title="${why}">—</td><td class="fin-cell cell-miss">—</td>`;
+            }
+        }
+        }
+
+        const isSel = selectedStudents.has(s.student_no);
+        body += `<tr class="${isSel ? 'row-selected' : ''}">
+                <td class="col-sel"><input type="checkbox" class="row-sel" data-sno="${escAttr(s.student_no)}" ${isSel ? 'checked' : ''}></td>
+                <td class="col-no">${i + 1}</td>
+                <td class="col-name bd-open" data-sno="${escAttr(s.student_no)}" title="View grade breakdown">${escHtml(s.fullname)}<span class="sn">${escHtml(s.student_no)}</span></td>
+                ${cells}
+                ${tail}
+            </tr>`;
+    });
+
+    const hint = hasCols ? '' :
+        `<div class="gs-hint"><i class="bi bi-info-circle"></i> Showing class roster only. Click <b>Add Activity</b> or check an assessment above to start grading.</div>`;
+
+    /* coursework weight-total indicator (when there are weights) —
+       activities AND form columns can both carry weight */
+    const weightCols = SHEET.columns.filter(c => c.type === 'activity' || c.type === 'form');
+    const totalWeight = weightCols.reduce((t, c) => t + (+c.weight || 0), 0);
+    const formWeight  = weightCols.filter(c => c.type === 'form').reduce((t, c) => t + (+c.weight || 0), 0);
+    let wtNote = '';
+    if (totalWeight > 0) {
+        const ok = Math.abs(totalWeight - 100) < 0.01;
+        /* remind the teacher that FormFlow columns count toward this total too */
+        const inclForms = formWeight > 0
+            ? ` <span class="wt-incl" data-tip="This total includes FormFlow form columns (${(+formWeight.toFixed(2))}%), not just manual activities.">incl. forms</span>` : '';
+        wtNote = `<div class="wt-note-wrap"><span class="wt-chip ${ok ? 'wt-ok' : 'wt-warn'}"
+            title="Sum of every weighted column — manual activities + FormFlow form columns. Aim for 100%.">
+            <i class="bi bi-${ok ? 'check-circle' : 'exclamation-triangle'}"></i>
+            Weights ${(+totalWeight.toFixed(2))}%${ok ? '' : ' — should be 100%'}${inclForms}</span></div>`;
+    }
+
+    /* print-only header — Section / Faculty / Passing / Date + compact summary */
+    const teacher  = (document.querySelector('.user-pill span')?.textContent || '').trim();
+    const passVal  = $('numPass').value || '75';
+    const today    = new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+    const clsAvg   = pctN ? (pctSum / pctN).toFixed(1) + '%' : '—';
+    const passRate = pctN ? Math.round(passCount / pctN * 100) + '%' : '—';
+    const printHead = `
+        <div class="gs-print-head">
+            <div class="gph-title">Grading Sheet</div>
+            <div class="gph-meta">
+                <span><b>Section:</b> ${escHtml(SHEET.section || '—')}</span>
+                <span><b>Faculty:</b> ${escHtml(teacher || '—')}</span>
+                <span><b>Passing:</b> ${escHtml(String(passVal))}%</span>
+                <span><b>Date:</b> ${escHtml(today)}</span>
+            </div>
+            <div class="gph-meta gph-sub">
+                <span>${students.length} students</span>
+                <span>${cols.length} assessments</span>
+                <span>Class avg: ${clsAvg}</span>
+                <span>Pass rate: ${passRate}</span>
+            </div>
+        </div>`;
+
+    /* preserve scroll + focus so it doesn't 'jump' on re-render */
+    const _prevWrap = $('gsArea').querySelector('.gs-wrap');
+    const _scroll = _prevWrap ? [_prevWrap.scrollLeft, _prevWrap.scrollTop] : null;
+    const _ae = document.activeElement;
+    let _refocus = null;
+    if (_ae && _ae.dataset && $('gsArea').contains(_ae)) {
+        _refocus = {
+            cls: (_ae.className || '').split(' ')[0],
+            sno: _ae.dataset.sno || '',
+            key: _ae.dataset.key || '',
+            aid: _ae.dataset.aid || '',
+        };
+    }
+
+    $('gsArea').innerHTML = hint + wtNote + printHead + `<div class="gs-topscroll"><div class="gs-topscroll-inner"></div></div><div class="gs-wrap"><table class="gs"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+
+    /* restore scroll + focus */
+    const _newWrap = $('gsArea').querySelector('.gs-wrap');
+    if (_newWrap && _scroll) { _newWrap.scrollLeft = _scroll[0]; _newWrap.scrollTop = _scroll[1]; }
+    if (_refocus && _refocus.cls) {
+        const esc = s => (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/["\\\]]/g, '\\$&');
+        let sel = '';
+        if (_refocus.sno && _refocus.key) sel = `[data-sno="${esc(_refocus.sno)}"][data-key="${esc(_refocus.key)}"]`;
+        else if (_refocus.aid && _refocus.key) sel = `[data-aid="${esc(_refocus.aid)}"][data-key="${esc(_refocus.key)}"]`;
+        else if (_refocus.aid) sel = `[data-aid="${esc(_refocus.aid)}"]`;
+        const cand = sel ? $('gsArea').querySelector(`.${_refocus.cls}${sel}`) : null;
+        if (cand) { try { cand.focus(); } catch (e) {} }
+    }
+
+    /* sync the top scrollbar with the table's horizontal scroll */
+    (() => {
+        const wrap = $('gsArea').querySelector('.gs-wrap');
+        const top = $('gsArea').querySelector('.gs-topscroll');
+        const inner = $('gsArea').querySelector('.gs-topscroll-inner');
+        const table = wrap && wrap.querySelector('table.gs');
+        if (!wrap || !top || !inner || !table) return;
+        const setW = () => { inner.style.width = table.scrollWidth + 'px'; };
+        setW();
+        setTimeout(setW, 60);   // after render, correct width
+        top.scrollLeft = wrap.scrollLeft;
+        let syncing = false;
+        top.addEventListener('scroll', () => { if (syncing) return; syncing = true; wrap.scrollLeft = top.scrollLeft; syncing = false; });
+        wrap.addEventListener('scroll', () => { if (syncing) return; syncing = true; top.scrollLeft = wrap.scrollLeft; syncing = false; });
+    })();
+
+    /* wire editable activity inputs */
+    $('gsArea').querySelectorAll('input.act-score').forEach(inp => {
+        inp.addEventListener('change', onScoreEdit);
+        inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                /* Enter → next student row, Shift+Enter → previous (spreadsheet-style) */
+                if (!focusScoreCell(inp, e.shiftKey ? -1 : 1)) inp.blur();
+            }
+        });
+    });
+    /* wire student name → grade breakdown */
+    $('gsArea').querySelectorAll('td.bd-open').forEach(td => {
+        td.addEventListener('click', () => openBreakdown(td.dataset.sno));
+    });
+    /* wire sortable column headers (Student name, final grade / %) */
+    $('gsArea').querySelectorAll('th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const k = th.dataset.sort;
+            if (sortKey === k) sortDir = -sortDir;         // same column → flip direction
+            else { sortKey = k; sortDir = (k === 'name') ? 1 : -1; }  // name: A→Z, grade: high→low
+            render();
+        });
+    });
+    /* wire delete-activity buttons */
+    $('gsArea').querySelectorAll('.act-del').forEach(btn => {
+        btn.addEventListener('click', () => deleteActivity(parseInt(btn.dataset.aid)));
+    });
+    /* wire fill-all (bulk score) buttons */
+    $('gsArea').querySelectorAll('.act-fill').forEach(btn => {
+        btn.addEventListener('click', () => bulkFillActivity(parseInt(btn.dataset.aid)));
+    });
+    /* wire sync (same-score) toggle buttons */
+    $('gsArea').querySelectorAll('.act-link').forEach(btn => {
+        btn.addEventListener('click', () => toggleLinkedActivity(parseInt(btn.dataset.aid)));
+    });
+    /* wire drag-to-reorder of columns (activities AND form columns, unified —
+       keyed by column key like "a3" / "f7") */
+    $('gsArea').querySelectorAll('.act-drag').forEach(h => {
+        h.addEventListener('dragstart', e => {
+            draggedKey = h.dataset.colkey || null;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(draggedKey));
+        });
+        h.addEventListener('dragend', () => {
+            draggedKey = null;
+            $('gsArea').querySelectorAll('.act-col.drag-over').forEach(t => t.classList.remove('drag-over'));
+        });
+    });
+    $('gsArea').querySelectorAll('th[data-colkey]').forEach(th => {
+        th.addEventListener('dragover', e => {
+            if (!draggedKey) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            th.classList.add('drag-over');
+        });
+        th.addEventListener('dragleave', () => th.classList.remove('drag-over'));
+        th.addEventListener('drop', e => {
+            e.preventDefault();
+            th.classList.remove('drag-over');
+            const targetKey = th.dataset.colkey;
+            if (draggedKey && targetKey) reorderColumns(draggedKey, targetKey);
+        });
+    });
+    /* wire row-selection checkboxes */
+    $('gsArea').querySelectorAll('input.row-sel').forEach(cb => {
+        cb.addEventListener('change', () => {
+            const sno = cb.dataset.sno;
+            if (cb.checked) selectedStudents.add(sno);
+            else selectedStudents.delete(sno);
+            cb.closest('tr').classList.toggle('row-selected', cb.checked);
+            syncSelAll();
+        });
+    });
+    const selAll = $('selAllRows');
+    if (selAll) {
+        selAll.addEventListener('change', () => {
+            $('gsArea').querySelectorAll('input.row-sel').forEach(cb => {
+                cb.checked = selAll.checked;
+                const sno = cb.dataset.sno;
+                if (selAll.checked) selectedStudents.add(sno);
+                else selectedStudents.delete(sno);
+                cb.closest('tr').classList.toggle('row-selected', selAll.checked);
+            });
+            updateSelBar();
+        });
+        syncSelAll();
+    }
+    /* wire editable activity header (rename + max points) */
+    $('gsArea').querySelectorAll('input.act-title-edit, input.act-max-edit, input.act-wt-edit, select.act-term-edit, select.act-cat-edit').forEach(inp => {
+        inp.addEventListener('change', onActivityEdit);
+        inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') inp.blur();
+        });
+    });
+    /* wire editable form-column overlay (term / category / weight) */
+    $('gsArea').querySelectorAll('input.frm-wt-edit, select.frm-term-edit, select.frm-cat-edit').forEach(inp => {
+        inp.addEventListener('change', onFormEdit);
+        inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') inp.blur();
+        });
+    });
+
+    $('gsStats').style.display = 'flex';
+    $('stStudents').textContent = SHEET.students.length;
+    $('stAssess').textContent = cols.length;
+    $('stAvg').textContent = pctN ? (pctSum / pctN).toFixed(1) + '%' : '—';
+    $('stPassRate').textContent = pctN ? Math.round(passCount / pctN * 100) + '%' : '—';
+}
+
+/* move focus to the same activity column in the next/prev student row */
+function focusScoreCell(fromInp, dir) {
+    const aid = fromInp.dataset.aid;
+    if (!aid) return false;
+    const escA = (window.CSS && CSS.escape) ? CSS.escape(aid) : aid;
+    let tr = fromInp.closest('tr');
+    while (tr) {
+        tr = dir > 0 ? tr.nextElementSibling : tr.previousElementSibling;
+        if (!tr) break;
+        const cell = tr.querySelector(`input.act-score[data-aid="${escA}"]`);
+        if (cell) { cell.focus(); cell.select(); return true; }
+    }
+    return false;
+}
+
+/* ── Save a manual score (inline edit) ──────────────────── */
+async function onScoreEdit(e) {
+    const inp = e.target;
+    const aid = parseInt(inp.dataset.aid);
+    const sno = inp.dataset.sno;
+    const key = inp.dataset.key;
+    let val = inp.value.trim();
+
+    const col = SHEET.columns.find(c => c.key === key);
+    /* did the teacher type a value above this activity's max? (server clamps it) */
+    const maxN = col ? Number(col.max) : null;
+    const typedNum = val === '' ? null : Number(val);
+    const wasOverMax = typedNum !== null && Number.isFinite(typedNum) && maxN !== null && typedNum > maxN;
+    /* capture the value BEFORE this edit — needed for same-score sync */
+    const prevRec = (SHEET.scores[sno] || {})[key];
+    const oldVal = (prevRec && prevRec.score !== '' && prevRec.score !== null && prevRec.score !== undefined)
+        ? Number(prevRec.score) : null;
+
+    const d = await apiPost({
+        api: 'save_activity_score',
+        activity_id: aid,
+        student_no: sno,
+        score: val
+    });
+    if (!d.success) {
+        showToastSafe(d.message || 'Save failed', 'error');
+        return;
+    }
+
+    /* update local model so totals recompute correctly */
+    if (!SHEET.scores[sno]) SHEET.scores[sno] = {};
+    if (d.cleared) {
+        delete SHEET.scores[sno][key];
+    } else {
+        SHEET.scores[sno][key] = {
+            score: d.score,
+            raw: d.score,
+            penalty: 0,
+            max: col ? col.max : 0,
+            at: null
+        };
+        inp.value = d.score; // reflect clamped value
+    }
+
+    /* alert the teacher when their entry was above the activity's max */
+    if (wasOverMax && !d.cleared) {
+        showToastSafe(`You entered ${typedNum}, but the max is ${maxN} — saved as ${d.score}.`, 'warning');
+    }
+
+    /* ── SYNC same scores ──────────────────────────────────────
+       If this activity has sync ON and we changed a real number to a
+       different number, update every OTHER cell that had the same old
+       value so they move together. Blank cells are never swept in. */
+    if (col && col.linked && !d.cleared && oldVal !== null) {
+        const newVal = Number(d.score);
+        if (newVal !== oldVal) {
+            const sd = await apiPost({
+                api: 'sync_activity_score',
+                activity_id: aid,
+                from_score: oldVal,
+                to_score: newVal
+            });
+            if (sd && sd.success) {
+                /* mirror the change in the local model for matching students */
+                let touched = 0;
+                SHEET.students.forEach(st => {
+                    const r = (SHEET.scores[st.student_no] || {})[key];
+                    if (r && Number(r.score) === oldVal) {
+                        r.score = newVal;
+                        r.raw = newVal;
+                        touched++;
+                    }
+                });
+                if (touched > 0) {
+                    showToastSafe(`Synced ${touched} cell${touched === 1 ? '' : 's'} with the same score.`, 'success');
+                }
+            }
+        }
+    }
+
+    /* recompute responded count for that column */
+    if (col) col.responded = SHEET.students.filter(st => SHEET.scores[st.student_no] && SHEET.scores[st.student_no][key]).length;
+
+    inp.classList.add('saved');
+    setTimeout(() => inp.classList.remove('saved'), 700);
+    render();
+}
+
+/* ── Unified column reorder (activities + form columns, keyed by column key) ── */
+function reorderColumns(dragKey, targetKey) {
+    if (dragKey === targetKey) return;
+    /* Only reorderable column types take part; other types (if any) keep
+       their slots. We reorder the movable subset and stitch it back. */
+    const movable = SHEET.columns.filter(c => c.type === 'activity' || c.type === 'form');
+    const from = movable.findIndex(c => c.key === dragKey);
+    const to   = movable.findIndex(c => c.key === targetKey);
+    if (from < 0 || to < 0 || from === to) return;
+
+    const [moved] = movable.splice(from, 1);
+    movable.splice(to, 0, moved);
+
+    /* map back into SHEET.columns, preserving positions of non-movable columns */
+    let mi = 0;
+    SHEET.columns = SHEET.columns.map(c =>
+        (c.type === 'activity' || c.type === 'form') ? movable[mi++] : c);
+    render();
+
+    apiPost({ api: 'reorder_columns', section: SHEET.section, order: JSON.stringify(movable.map(c => c.key)) })
+        .then(d => {
+            if (d && d.success) showToastSafe('Column order saved.', 'success');
+            else showToastSafe((d && d.message) || 'Failed to save order', 'error');
+        });
+}
+
+/* ── Save the form-column overlay (term / category / weight) ── */
+async function onFormEdit(e) {
+    const inp = e.target;
+    const fid = parseInt(inp.dataset.fid);
+    const key = inp.dataset.key;
+    const col = SHEET.columns.find(c => c.key === key);
+    if (!col) return;
+
+    const isTerm   = inp.classList.contains('frm-term-edit');
+    const isCat    = inp.classList.contains('frm-cat-edit');
+    const isWeight = inp.classList.contains('frm-wt-edit');
+
+    const payload = { api: 'set_form_meta', section: SHEET.section, form_id: fid };
+    if (isTerm) {
+        payload.term = inp.value;
+        payload.category_id = '';           // clear category when term changes
+        col.term = inp.value;
+        col.category_id = null;
+    } else if (isCat) {
+        payload.category_id = inp.value === '' ? '' : parseInt(inp.value);
+        col.category_id = inp.value === '' ? null : parseInt(inp.value);
+    } else if (isWeight) {
+        const w = Math.max(0, parseFloat(inp.value) || 0);
+        inp.value = w;
+        if (w === (+col.weight || 0)) return;
+        payload.weight = w;
+        col.weight = w;
+    } else {
+        return;
+    }
+
+    const d = await apiPost(payload);
+    if (!d.success) { showToastSafe(d.message || 'Update failed', 'error'); return; }
+    render();
+}
+
+function syncSelAll() {
+    const selAll = $('selAllRows');
+    if (!selAll) return;
+    const boxes = $('gsArea').querySelectorAll('input.row-sel');
+    const checked = $('gsArea').querySelectorAll('input.row-sel:checked').length;
+    selAll.checked = boxes.length > 0 && checked === boxes.length;
+    selAll.indeterminate = checked > 0 && checked < boxes.length;
+    updateSelBar();
+}
+
+/* show/hide the bulk selection bar + live count */
+function updateSelBar() {
+    const bar = $('selBar');
+    if (!bar) return;
+    const n = selectedStudents.size;
+    bar.style.display = n ? 'flex' : 'none';
+    const c = $('selBarCount');
+    if (c) c.textContent = n;
+}
+
+/* apply a final status (INC / DRP / W, or '' to clear) to all selected students */
+async function bulkSetStatus(status) {
+    if (!SHEET || !selectedStudents.size) return;
+    const snos = [...selectedStudents];
+    const d = await apiPost({
+        api: 'set_students_status',
+        section: SHEET.section,
+        students: JSON.stringify(snos),
+        status
+    });
+    if (!d.success) { showToastSafe(d.message || 'Could not update statuses.', 'error'); return; }
+    if (!SHEET.statuses) SHEET.statuses = {};
+    snos.forEach(sno => { if (status) SHEET.statuses[sno] = status; else delete SHEET.statuses[sno]; });
+    selectedStudents.clear();
+    render();
+    showToastSafe(
+        status ? `${snos.length} student${snos.length === 1 ? '' : 's'} marked as ${status}.`
+               : `Status cleared for ${snos.length} student${snos.length === 1 ? '' : 's'}.`,
+        'success'
+    );
+}
+
+/* ── Sync same-score mode ───────────────────────────────────
+   When ON for an activity, editing any cell also updates every other
+   cell in that activity that had the same value (see onScoreEdit). */
+async function toggleLinkedActivity(aid) {
+    const col = SHEET.columns.find(c => c.key === 'a' + aid);
+    if (!col) return;
+    const turningOn = !col.linked;
+    const d = await apiPost({
+        api: 'set_linked_activity',
+        activity_id: aid,
+        linked: turningOn ? '1' : '0'
+    });
+    if (!d.success) { showToastSafe(d.message || 'Could not update.', 'error'); return; }
+    col.linked = d.linked;
+    render();
+    showToastSafe(
+        turningOn
+            ? 'Sync ON — editing a score now updates all cells with the same value.'
+            : 'Sync OFF — scores are independent again.',
+        'info'
+    );
+}
+
+function bulkFillActivity(aid) {
+    const col = SHEET.columns.find(c => c.key === 'a' + aid);
+    if (!col) return;
+    pendingFillAid = aid;
+    $('bulkFillCol').textContent = col.title;
+    $('bulkFillMax').textContent = `(0–${col.max})`;
+    const inp = $('bulkFillScore');
+    inp.max = col.max;
+    inp.value = '';
+    /* show the 'selected' option if there's a selection; make it the default */
+    const nSel = selectedStudents.size;
+    const selWrap = $('bulkScopeSelWrap');
+    if (selWrap) {
+        if (nSel > 0) {
+            selWrap.style.display = '';
+            $('bulkSelCount').textContent = `(${nSel} selected)`;
+            const rSel = document.querySelector('input[name="bulkScope"][value="selected"]');
+            if (rSel) rSel.checked = true;
+        } else {
+            selWrap.style.display = 'none';
+            const rEmpty = document.querySelector('input[name="bulkScope"][value="empty"]');
+            if (rEmpty) rEmpty.checked = true;
+        }
+    }
+    $('bulkFillErr').style.display = 'none';
+    $('bulkFillModal').classList.add('show');
+    setTimeout(() => inp.focus(), 50);
+}
+
+function closeBulkFillModal() {
+    $('bulkFillModal').classList.remove('show');
+    pendingFillAid = null;
+}
+
+async function applyBulkFill() {
+    const aid = pendingFillAid;
+    if (!aid) return;
+    const col = SHEET.columns.find(c => c.key === 'a' + aid);
+    const err = $('bulkFillErr');
+    const raw = $('bulkFillScore').value.trim();
+
+    const num = Number(raw);
+    if (raw === '' || !Number.isFinite(num) || num < 0 || (col && num > col.max)) {
+        err.textContent = col ? `Please enter a valid score between 0 and ${col.max}.` : 'Please enter a valid score.';
+        err.style.display = 'block';
+        return;
+    }
+    const mode = (document.querySelector('input[name="bulkScope"]:checked') || {}).value || 'empty';
+
+    const payload = { api: 'bulk_fill_activity', activity_id: aid, score: raw, mode };
+    if (mode === 'selected') {
+        if (selectedStudents.size === 0) {
+            err.textContent = 'No students selected. Tick the checkboxes first.';
+            err.style.display = 'block';
+            return;
+        }
+        payload.students = JSON.stringify([...selectedStudents]);
+    }
+
+    closeBulkFillModal();
+    const d = await apiPost(payload);
+    if (!d.success) {
+        showToastSafe(d.message || 'Bulk fill failed', 'error');
+        return;
+    }
+    showToastSafe(`Applied ${d.score} to ${d.applied} student${d.applied === 1 ? '' : 's'}.`, 'success');
+    selectedStudents.clear();          // unselect after updating
+    await loadSheet(SHEET.section);
+}
+
+/* ── Edit activity header (rename / change max, inline) ─── */
+async function onActivityEdit(e) {
+    const inp = e.target;
+    const aid = parseInt(inp.dataset.aid);
+    const key = inp.dataset.key;
+    const col = SHEET.columns.find(c => c.key === key);
+    if (!col) return;
+
+    const isTitle  = inp.classList.contains('act-title-edit');
+    const isWeight = inp.classList.contains('act-wt-edit');
+    const isTerm   = inp.classList.contains('act-term-edit');
+    const isCat    = inp.classList.contains('act-cat-edit');
+
+    /* term / category (Option B) — separate short path */
+    if (isTerm || isCat) {
+        const payload = { api: 'edit_activity', activity_id: aid, title: col.title, max_points: col.max, weight: (+col.weight || 0) };
+        if (isTerm) {
+            payload.term = inp.value;
+            payload.category_id = '';        // clear the category when the term changes
+            col.term = inp.value;
+            col.category_id = null;
+        } else {
+            payload.category_id = inp.value === '' ? '' : parseInt(inp.value);
+            col.category_id = inp.value === '' ? null : parseInt(inp.value);
+        }
+        const dd = await apiPost(payload);
+        if (!dd.success) { showToastSafe(dd.message || 'Update failed', 'error'); return; }
+        render();
+        return;
+    }
+
+    let newTitle  = col.title;
+    let newMax    = col.max;
+    let newWeight = (+col.weight || 0);
+
+    if (isTitle) {
+        newTitle = inp.value.trim();
+        if (!newTitle) { inp.value = col.title; return; }
+        if (newTitle === col.title) return;
+    } else if (isWeight) {
+        newWeight = Math.max(0, parseFloat(inp.value) || 0);
+        inp.value = newWeight;
+        if (newWeight === (+col.weight || 0)) return;
+    } else {
+        newMax = Math.max(1, parseInt(inp.value) || col.max);
+        inp.value = newMax;
+        if (newMax === col.max) return;
+    }
+
+    const d = await apiPost({
+        api: 'edit_activity',
+        activity_id: aid,
+        title: newTitle,
+        max_points: newMax,
+        weight: newWeight
+    });
+    if (!d.success) {
+        showToastSafe(d.message || 'Update failed', 'error');
+        inp.value = isTitle ? col.title : (isWeight ? (+col.weight || 0) : col.max);
+        return;
+    }
+
+    col.title  = d.activity.title;
+    col.max    = d.activity.max;
+    col.weight = d.activity.weight;
+
+    /* if scores were clamped because max dropped, sync the local model */
+    if (d.clamped && d.clamped.length) {
+        d.clamped.forEach(c2 => {
+            const rec = SHEET.scores[c2.student_no] && SHEET.scores[c2.student_no][key];
+            if (rec) {
+                rec.score = c2.score;
+                rec.raw = c2.score;
+            }
+        });
+        showToastSafe(`Activity updated · ${d.clamped.length} score(s) clamped to ${col.max}`, 'success');
+    } else {
+        showToastSafe('Activity updated', 'success');
+    }
+
+    renderColumnPicker();
+    render();
+}
+
+/* ── Add activity ───────────────────────────────────────── */
+function openActModal() {
+    if (!SHEET) {
+        showToastSafe('Select a section first before adding an activity.', 'error');
+        return;
+    }
+    $('actTitle').value = '';
+    $('actMax').value = 100;
+    $('actModal').classList.add('show');
+    setTimeout(() => $('actTitle').focus(), 50);
+}
+
+function closeActModal() {
+    $('actModal').classList.remove('show');
+}
+
+async function saveActivity() {
+    const title = $('actTitle').value.trim();
+    const max = Math.max(1, parseInt($('actMax').value) || 100);
+    if (!title) {
+        $('actTitle').focus();
+        return;
+    }
+    const d = await apiPost({
+        api: 'add_activity',
+        section: SHEET.section,
+        title,
+        max_points: max
+    });
+    if (!d.success) {
+        showToastSafe(d.message || 'Could not add activity', 'error');
+        return;
+    }
+    SHEET.columns.push(d.activity);
+    selectedCols.add(d.activity.key);
+    closeActModal();
+    renderColumnPicker();
+    render();
+    showToastSafe('Activity added', 'success');
+}
+
+let pendingDeleteAid = null;
+let pendingFillAid = null;
+let importRows = null;   // validated { student_no: score } ready to send
+let importRaw  = null;   // [{ sno, raw }] parsed rows, pre-validation (re-checked per activity)
+let draggedKey = null;   // column key ('a3'/'f7') currently being dragged
+
+function deleteActivity(aid) {
+    pendingDeleteAid = aid;
+    const col = SHEET.columns.find(c => c.key === 'a' + aid);
+    $('delActText').innerHTML = col ?
+        `This will permanently delete <b>${escHtml(col.title)}</b> and all its scores. This action cannot be undone.` :
+        'This will permanently delete the activity and all its scores. This action cannot be undone.';
+    $('delActModal').classList.add('show');
+}
+
+function closeDelModal() {
+    $('delActModal').classList.remove('show');
+    pendingDeleteAid = null;
+}
+
+async function confirmDeleteActivity() {
+    const aid = pendingDeleteAid;
+    if (!aid) return;
+    $('delActModal').classList.remove('show');
+    const d = await apiPost({
+        api: 'delete_activity',
+        activity_id: aid
+    });
+    if (!d.success) {
+        showToastSafe(d.message || 'Delete failed', 'error');
+        pendingDeleteAid = null;
+        return;
+    }
+    const key = 'a' + aid;
+    SHEET.columns = SHEET.columns.filter(c => c.key !== key);
+    selectedCols.delete(key);
+    SHEET.students.forEach(s => {
+        if (SHEET.scores[s.student_no]) delete SHEET.scores[s.student_no][key];
+    });
+    renderColumnPicker();
+    render();
+    showToastSafe('Activity deleted', 'success');
+    pendingDeleteAid = null;
+}
+
+/* ── CSV import — scores matched by student number (empty-only) ── */
+function parseCsvText(text) {
+    return String(text).split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(l => l.length)
+        .map(line => line.split(',').map(c => c.trim().replace(/^"(.*)"$/, '$1')));
+}
+
+function openImportModal() {
+    if (!SHEET) {
+        showToastSafe('Select a section first.', 'error');
+        return;
+    }
+    const acts = SHEET.columns.filter(c => c.type === 'activity');
+    if (!acts.length) {
+        showToastSafe('Add an activity first to import into.', 'error');
+        return;
+    }
+    $('importActivity').innerHTML = acts
+        .map(a => `<option value="${a.id}">${escHtml(a.title)} (max ${a.max})</option>`)
+        .join('');
+    $('importFile').value = '';
+    $('importInfo').style.display = 'none';
+    $('importErr').style.display = 'none';
+    $('importApply').disabled = true;
+    const ow = $('importOverwrite');
+    if (ow) ow.checked = true;   // default: overwrite existing scores
+    const cap = $('importCapMax');
+    if (cap) cap.checked = false; // default: flag over-max rather than clamp
+    clearImportFileUI();         // show drop zone, hide selected-file row
+    importRows = null;
+    importRaw = null;
+    clearImportPreview();
+    $('importModal').classList.add('show');
+}
+
+function closeImportModal() {
+    $('importModal').classList.remove('show');
+    importRows = null;
+    importRaw = null;
+    clearImportPreview();
+}
+
+function clearImportFileUI() {
+    const drop = $('importDrop'), sel = $('importFileSel'), err = $('importErr'), info = $('importInfo');
+    if (drop) drop.style.display = '';
+    if (sel) sel.classList.remove('show');
+    if (err) err.style.display = 'none';
+    if (info) { info.textContent = ''; info.style.display = 'none'; }
+    const fi = $('importFile');
+    if (fi) fi.value = '';
+    importRows = null;
+    importRaw = null;
+    clearImportPreview();
+    $('importApply').disabled = true;
+}
+
+function showImportFileUI(name) {
+    const drop = $('importDrop'), sel = $('importFileSel'), nm = $('importFileName');
+    if (nm) nm.textContent = name || 'file.csv';
+    if (drop) drop.style.display = 'none';
+    if (sel) sel.classList.add('show');
+}
+
+function handleImportFile(file) {
+    const err = $('importErr'), info = $('importInfo');
+    err.style.display = 'none';
+    info.style.display = 'none';
+    $('importApply').disabled = true;
+    importRows = null;
+    importRaw = null;
+    clearImportPreview();
+    if (!file) { clearImportFileUI(); return; }
+
+    showImportFileUI(file.name);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        let rows = parseCsvText(reader.result);
+        if (!rows.length) { showImportError('The file is empty.'); return; }
+        /* skip header row if the 2nd column isn't a number */
+        if (!Number.isFinite(Number(rows[0][1]))) rows = rows.slice(1);
+
+        importRaw = rows
+            .map(r => ({ sno: (r[0] || '').trim(), raw: (r[1] == null ? '' : String(r[1])).trim() }))
+            .filter(r => r.sno !== '' || r.raw !== '');
+
+        if (!importRaw.length) {
+            showImportError('No rows found (expected: student number, score).');
+            return;
+        }
+        validateImport();
+    };
+    reader.readAsText(file);
+}
+
+/* Validate the parsed rows against the SELECTED activity's max + the roster.
+   Re-runnable — the activity dropdown re-triggers it since max can change. */
+function validateImport() {
+    const err = $('importErr'), info = $('importInfo');
+    err.style.display = 'none';
+    if (!importRaw || !SHEET) return;
+
+    const aid = parseInt($('importActivity').value);
+    const act = SHEET.columns.find(c => c.type === 'activity' && c.id === aid);
+    const max = act ? Number(act.max) : null;
+    const capMax = $('importCapMax') ? $('importCapMax').checked : false;
+
+    const roster = new Set(SHEET.students.map(s => String(s.student_no)));
+    const seen = new Set();
+    const good = {};                 // sno -> int score (importable)
+    const problems = [];             // rows that WON'T import (real errors)
+    let importable = 0, over = 0, neg = 0, nan = 0, dupe = 0, notin = 0, rounded = 0, capped = 0, blank = 0;
+
+    importRaw.forEach(r => {
+        const sno = r.sno;
+        if (!sno) return;
+        if (seen.has(sno)) { dupe++; problems.push({ sno, val: r.raw || '(blank)', reason: 'duplicate' }); return; }
+        seen.add(sno);
+
+        if (r.raw === '') { blank++; return; }                       // blank = silently skipped (templates ship blank)
+        const n = Number(r.raw);
+        if (!Number.isFinite(n)) { nan++; problems.push({ sno, val: r.raw, reason: 'not a number' }); return; }
+        if (n < 0) { neg++; problems.push({ sno, val: r.raw, reason: 'negative' }); return; }
+        if (!roster.has(sno)) { notin++; problems.push({ sno, val: r.raw, reason: 'not in section' }); return; }
+
+        let v = n;
+        if (max !== null && v > max) {
+            if (capMax) { v = max; capped++; }                       // clamp down and import
+            else { over++; problems.push({ sno, val: r.raw, reason: `over max (${max})` }); return; }
+        }
+        if (!Number.isInteger(v)) { v = Math.round(v); rounded++; }
+        good[sno] = v;
+        importable++;
+    });
+
+    importRows = importable ? good : null;
+
+    const parts = [`${importRaw.length} row${importRaw.length === 1 ? '' : 's'}`, `${importable} will import`];
+    if (capped)  parts.push(`${capped} capped to ${max}`);
+    if (rounded) parts.push(`${rounded} rounded`);
+    if (blank)   parts.push(`${blank} blank skipped`);
+    info.textContent = parts.join(' · ') + '.';
+    info.style.display = 'block';
+
+    const noMatch = importable === 0 && notin > 0 && !over && !neg && !nan && !dupe;
+    const fileSample = problems.filter(p => p.reason === 'not in section').slice(0, 3).map(p => p.sno);
+    const rosterSample = SHEET.students.slice(0, 3).map(s => String(s.student_no));
+    renderImportPreview(problems, { over, neg, nan, dupe, notin }, { noMatch, notin, fileSample, rosterSample });
+
+    $('importApply').disabled = importable === 0;
+    if (importable === 0 && !noMatch) {
+        showImportError(
+            (over || neg || nan) ? 'No valid scores to import — fix the flagged rows.' :
+            notin ? 'None of these student numbers match this section.' :
+            blank ? 'All rows are blank — nothing to import yet.' :
+            'Nothing to import.'
+        );
+    }
+}
+
+function renderImportPreview(problems, c, ctx) {
+    const box = $('importPreview');
+    if (!box) return;
+    if (!problems.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+
+    const shown = problems.slice(0, 8);
+    const rowsHtml = shown.map(p => `
+        <div class="imp-prow">
+            <span class="imp-psno">${escHtml(p.sno)}</span>
+            <span class="imp-pval">${escHtml(String(p.val))}</span>
+            <span class="imp-preason">${escHtml(p.reason)}</span>
+        </div>`).join('');
+    const more = problems.length > shown.length
+        ? `<div class="imp-pmore">+${problems.length - shown.length} more</div>` : '';
+
+    /* nothing matched the roster → one clear diagnostic instead of a wall of rows */
+    if (ctx && ctx.noMatch) {
+        const fileEx = (ctx.fileSample || []).map(escHtml).join(' · ') || '—';
+        const rostEx = (ctx.rosterSample || []).map(escHtml).join(' · ') || '—';
+        box.innerHTML =
+            `<div class="imp-nomatch">
+                <div class="imp-nm-head"><i class="bi bi-exclamation-triangle"></i> No student numbers match this section</div>
+                <div class="imp-nm-sub">All ${ctx.notin} scored row${ctx.notin === 1 ? '' : 's'} belong to a different roster.</div>
+                <div class="imp-nm-cmp">
+                    <span class="imp-nm-k">Your file</span><span class="imp-nm-v">${fileEx}</span>
+                    <span class="imp-nm-k">This section</span><span class="imp-nm-v">${rostEx}</span>
+                </div>
+                <div class="imp-nm-hint">Likely the wrong section is selected above, or the file was exported from another section.</div>
+                <div class="imp-nm-actions">
+                    <button type="button" class="btn btn-ghost btn-sm" id="impNmTemplate"><i class="bi bi-download"></i> Download this section's template</button>
+                    <button type="button" class="imp-nm-showall" id="impNmShowAll">Show all ${ctx.notin}</button>
+                </div>
+                <div class="imp-ptable" id="impNmList" style="display:none;margin-top:.6rem;">${rowsHtml}${more}</div>
+            </div>`;
+        box.style.display = 'block';
+        const tpl = $('impNmTemplate');
+        if (tpl) tpl.addEventListener('click', downloadSampleCsv);
+        const sa = $('impNmShowAll'), list = $('impNmList');
+        if (sa && list) sa.addEventListener('click', () => {
+            const open = list.style.display === 'none';
+            list.style.display = open ? 'block' : 'none';
+            sa.textContent = open ? 'Hide list' : `Show all ${ctx.notin}`;
+        });
+        return;
+    }
+
+    const bits = [];
+    if (c.over)  bits.push(`${c.over} over max`);
+    if (c.neg)   bits.push(`${c.neg} negative`);
+    if (c.nan)   bits.push(`${c.nan} not a number`);
+    if (c.dupe)  bits.push(`${c.dupe} duplicate`);
+    if (c.notin) bits.push(`${c.notin} not in section`);
+
+    box.innerHTML =
+        `<div class="imp-phead"><i class="bi bi-exclamation-triangle"></i> ${bits.join(' · ')} — won't be imported:</div>`
+        + `<div class="imp-ptable">${rowsHtml}${more}</div>`;
+    box.style.display = 'block';
+}
+
+function showImportError(msg) {
+    const err = $('importErr');
+    err.textContent = msg;
+    err.style.display = 'block';
+}
+
+function clearImportPreview() {
+    const box = $('importPreview');
+    if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+}
+
+function downloadSampleCsv() {
+    let rows = [['student_no', 'score']];
+    if (SHEET && SHEET.students && SHEET.students.length) {
+        SHEET.students.forEach(s => rows.push([s.student_no, '']));   // real roster, blank score
+    } else {
+        rows.push(['024-0001', '80'], ['024-0002', '75']);           // generic if there's no section
+    }
+    const csv = rows.map(r => r.map(c => {
+        const v = String(c ?? '');
+        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    }).join(',')).join('\n');
+
+    const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+    const safe = String((SHEET && SHEET.section) || 'section').replace(/[^\w.-]+/g, '_');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `import_template_${safe}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+async function applyImport() {
+    const aid = parseInt($('importActivity').value);
+    if (!aid || !importRows) return;
+    $('importApply').disabled = true;
+    const overwrite = $('importOverwrite') ? $('importOverwrite').checked : true;
+    const d = await apiPost({
+        api: 'import_activity_scores',
+        activity_id: aid,
+        scores: JSON.stringify(importRows),
+        overwrite: overwrite ? '1' : '0'
+    });
+    if (!d.success) {
+        showToastSafe(d.message || 'Import failed', 'error');
+        $('importApply').disabled = false;
+        return;
+    }
+    closeImportModal();
+    let msg = `Imported ${d.applied} score${d.applied === 1 ? '' : 's'}.`;
+    if (d.skipped)   msg += ` ${d.skipped} kept (blanks-only mode).`;
+    if (d.invalid)   msg += ` ${d.invalid} skipped (out of range).`;
+    if (d.unmatched) msg += ` ${d.unmatched} not in section.`;
+    showToastSafe(msg, 'success');
+    await loadSheet(SHEET.section);
+}
+
+/* ── Grade Setup (Option B — categories per term) ── */
+function openSetupModal() {
+    if (!SHEET) { showToastSafe('Select a section first.', 'error'); return; }
+    renderSetup();
+    $('setupModal').classList.add('show');
+}
+function closeSetupModal() { $('setupModal').classList.remove('show'); }
+
+function renderSetup() {
+    const cats = SHEET.categories || [];
+    const terms = [['midterm', 'Midterm'], ['final', 'Final']];
+    $('setupBody').innerHTML = terms.map(([tk, tlabel]) => {
+        const list = cats.filter(c => c.term === tk);
+        const total = list.reduce((t, c) => t + (+c.weight || 0), 0);
+        const ok = Math.abs(total - 100) < 0.01;
+        const rows = list.map(c => `
+            <div class="setup-row" data-id="${c.id}">
+                <input class="setup-name" value="${escAttr(c.name)}" data-id="${c.id}">
+                <input type="number" class="setup-wt" value="${(+c.weight || 0)}" min="0" step="1" data-id="${c.id}"> %
+                <button class="setup-del" data-id="${c.id}" title="Delete category">&times;</button>
+            </div>`).join('');
+        return `<div class="setup-term">
+            <div class="setup-term-head"><b>${tlabel}</b> <span class="${ok ? 'wt-ok-txt' : 'wt-warn-txt'}">total ${(+total.toFixed(2))}%${ok ? ' ✓' : ' ⚠'}</span></div>
+            ${rows || '<div class="bulk-note" style="padding:.2rem 0;">No categories yet.</div>'}
+            <button class="btn btn-ghost btn-sm setup-add" data-term="${tk}"><i class="bi bi-plus"></i> Add category</button>
+        </div>`;
+    }).join('');
+    $('setupBody').querySelectorAll('.setup-name, .setup-wt').forEach(inp => inp.addEventListener('change', saveCategoryEdit));
+    $('setupBody').querySelectorAll('.setup-del').forEach(b => b.addEventListener('click', () => deleteCategory(parseInt(b.dataset.id))));
+    $('setupBody').querySelectorAll('.setup-add').forEach(b => b.addEventListener('click', () => addCategory(b.dataset.term)));
+}
+
+async function saveCategoryEdit(e) {
+    const id = parseInt(e.target.dataset.id);
+    const row = $('setupBody').querySelector(`.setup-row[data-id="${id}"]`);
+    const name = row.querySelector('.setup-name').value.trim() || 'Category';
+    const weight = Math.max(0, parseFloat(row.querySelector('.setup-wt').value) || 0);
+    const d = await apiPost({ api: 'save_category', id, name, weight });
+    if (!d.success) { showToastSafe(d.message || 'Save failed', 'error'); return; }
+    const cat = SHEET.categories.find(c => c.id === id);
+    if (cat) { cat.name = name; cat.weight = weight; }
+    renderSetup();
+    render();
+}
+
+async function addCategory(term) {
+    const d = await apiPost({ api: 'save_category', id: 0, section: SHEET.section, term, name: 'New category', weight: 0 });
+    if (!d.success) { showToastSafe(d.message || 'Add failed', 'error'); return; }
+    SHEET.categories.push({ id: d.id, term, name: 'New category', weight: 0 });
+    renderSetup();
+    render();
+}
+
+async function deleteCategory(id) {
+    const d = await apiPost({ api: 'delete_category', id });
+    if (!d.success) { showToastSafe(d.message || 'Delete failed', 'error'); return; }
+    SHEET.categories = SHEET.categories.filter(c => c.id !== id);
+    SHEET.columns.forEach(c => { if (c.category_id === id) c.category_id = null; });
+    renderSetup();
+    render();
+}
+
+/* ── Transmutation table (global bands: raw score → 1.00–5.00) ── */
+let tmDraft = [];
+
+async function openTmModal() {
+    /* prefer live bands; else the sheet's; else pull the teacher's saved set
+       (get_transmute works even with no section loaded — it's global) */
+    let bands = (Array.isArray(TRANSMUTE) && TRANSMUTE.length) ? TRANSMUTE
+              : (SHEET && Array.isArray(SHEET.grade_equiv) && SHEET.grade_equiv.length) ? SHEET.grade_equiv
+              : null;
+    if (!bands) {
+        const d = await apiGet({ api: 'get_transmute' });
+        bands = (d && d.success && Array.isArray(d.grade_equiv) && d.grade_equiv.length) ? d.grade_equiv : DEFAULT_EQUIV;
+        TRANSMUTE = bands;
+    }
+    tmDraft = bands.map(b => ({ min: Number(b.min), point: Number(b.point) }));
+    renderTm();
+    $('tmModal').classList.add('show');
+}
+function closeTmModal() { $('tmModal').classList.remove('show'); }
+
+function renderTm() {
+    if (!tmDraft.length) {
+        $('tmBody').innerHTML = '<div class="bulk-note" style="padding:.3rem 0;">No bands yet — add one below.</div>';
+        return;
+    }
+    $('tmBody').innerHTML = tmDraft.map((b, i) => `
+        <div class="tm-row" data-idx="${i}">
+            <input type="number" class="tm-min" data-idx="${i}" value="${b.min === '' ? '' : b.min}" min="0" max="100" step="1" placeholder="min">
+            <i class="bi bi-arrow-right tm-arrow"></i>
+            <input type="number" class="tm-pt" data-idx="${i}" value="${b.point === '' ? '' : b.point}" min="1" max="5" step="0.25" placeholder="pt">
+            <button class="tm-del setup-del" data-idx="${i}" title="Remove band">&times;</button>
+        </div>`).join('');
+    $('tmBody').querySelectorAll('.tm-min, .tm-pt').forEach(inp => inp.addEventListener('input', tmEdit));
+    $('tmBody').querySelectorAll('.tm-del').forEach(btn =>
+        btn.addEventListener('click', () => { tmDraft.splice(+btn.dataset.idx, 1); renderTm(); }));
+}
+
+function tmEdit(e) {
+    const i = +e.target.dataset.idx;
+    const v = e.target.value === '' ? '' : Number(e.target.value);
+    if (e.target.classList.contains('tm-min')) tmDraft[i].min = v;
+    else tmDraft[i].point = v;
+}
+
+function tmAddBand() {
+    tmDraft.push({ min: '', point: '' });
+    renderTm();
+    const mins = $('tmBody').querySelectorAll('.tm-min');
+    if (mins.length) mins[mins.length - 1].focus();
+}
+
+async function saveTm() {
+    /* mirror server-side validation: min 0–100, point 1.00–5.00, dedup by min */
+    const clean = [];
+    const seen = new Set();
+    for (const b of tmDraft) {
+        const mn = Number(b.min), pt = Number(b.point);
+        if (b.min === '' || b.point === '' || Number.isNaN(mn) || Number.isNaN(pt)) continue;
+        if (mn < 0 || mn > 100 || pt < 1 || pt > 5) continue;
+        const key = mn.toFixed(2);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        clean.push({ min: mn, point: pt });
+    }
+    if (!clean.length) { showToastSafe('Add at least one valid band (min 0–100, point 1.00–5.00).', 'error'); return; }
+    clean.sort((a, b) => b.min - a.min);   // highest min first
+
+    const d = await apiPost({ api: 'save_transmute', bands: JSON.stringify(clean) });
+    if (!d.success) { showToastSafe(d.message || 'Save failed', 'error'); return; }
+    TRANSMUTE = d.grade_equiv;
+    if (SHEET) SHEET.grade_equiv = d.grade_equiv;
+    closeTmModal();
+    if (SHEET) render();
+    const n = d.grade_equiv.length;
+    showToastSafe(`Transmutation saved — ${n} band${n === 1 ? '' : 's'}.`, 'success');
+}
+
+/* ── Full backup: every section → one .xlsx (one sheet per section) ── */
+function loadScriptOnce(src) {
+    return new Promise((resolve, reject) => {
+        if (window.XLSX) return resolve();
+        const existing = document.querySelector('script[data-lib="xlsx"]');
+        if (existing) { existing.addEventListener('load', () => resolve()); existing.addEventListener('error', reject); return; }
+        const sc = document.createElement('script');
+        sc.src = src; sc.dataset.lib = 'xlsx';
+        sc.onload = () => resolve();
+        sc.onerror = () => reject(new Error('load failed'));
+        document.head.appendChild(sc);
+    });
+}
+
+async function exportBackup() {
+    showToastSafe('Preparing backup…', 'info');
+    try {
+        await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    } catch (e) {
+        showToastSafe('Could not load the Excel library — check your connection.', 'error');
+        return;
+    }
+    if (!window.XLSX) { showToastSafe('Excel library unavailable.', 'error'); return; }
+
+    const ms = await apiGet({ api: 'my_sections' });
+    const sections = (ms && ms.success && Array.isArray(ms.sections)) ? ms.sections : [];
+    if (!sections.length) { showToastSafe('No sections with activities to back up yet.', 'info'); return; }
+
+    const wb = XLSX.utils.book_new();
+    const usedNames = new Set();
+    const sheetName = raw => {                       // Excel tab names: ≤31 chars, no \ / ? * [ ] :
+        let base = String(raw || 'Section').replace(/[\\/?*\[\]:]/g, ' ').slice(0, 28).trim() || 'Section';
+        let n = base, i = 2;
+        while (usedNames.has(n.toLowerCase())) n = `${base.slice(0, 25)} ${i++}`;
+        usedNames.add(n.toLowerCase());
+        return n;
+    };
+
+    const summary = [['eGradeBook backup'], ['Exported', new Date().toLocaleString()], [],
+                     ['Section', 'Students', 'Activities', 'Scores', 'Status']];
+    let totalScores = 0, okCount = 0, emptyCount = 0, failCount = 0;
+
+    for (const sec of sections) {
+        let d = null;
+        try { d = await apiGet({ api: 'sheet', section: sec }); } catch (e) { d = null; }
+
+        if (!d || !d.success) {                       // never skip silently — record it
+            failCount++;
+            const why = (d && d.message) ? d.message : 'fetch failed';
+            summary.push([sec, 0, 0, 0, why]);
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Could not load this section', why]]), sheetName(sec));
+            continue;
+        }
+
+        const acts = (d.columns || []).filter(c => c.type === 'activity' || c.type === 'form');
+        const students = d.students || [];
+        const scores = d.scores || {};
+        const st = d.statuses || {};
+
+        const rows = [['Student No', 'Name', 'Status', ...acts.map(a => `${a.title} (max ${a.max || 0})`)]];
+        let secScores = 0;
+        students.forEach(s => {
+            const row = [s.student_no, s.fullname || '', st[s.student_no] || ''];
+            acts.forEach(a => {
+                const rec = (scores[s.student_no] || {})[a.key];
+                if (rec && rec.score !== '' && rec.score !== null && rec.score !== undefined) { row.push(Number(rec.score)); secScores++; }
+                else row.push('');
+            });
+            rows.push(row);
+        });
+        totalScores += secScores;
+
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), sheetName(sec));
+        if (!students.length) { emptyCount++; summary.push([sec, 0, acts.length, 0, 'no students in roster']); }
+        else { okCount++; summary.push([sec, students.length, acts.length, secScores, 'ok']); }
+
+        await new Promise(r => setTimeout(r, 120));   // ease off InfinityFree between requests
+    }
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Summary');
+    wb.SheetNames.unshift(wb.SheetNames.pop());       // move Summary to the front
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `eGradeBook_backup_${stamp}.xlsx`);
+
+    const bits = [`${okCount} section${okCount === 1 ? '' : 's'}`, `${totalScores} score${totalScores === 1 ? '' : 's'}`];
+    if (emptyCount) bits.push(`${emptyCount} empty`);
+    if (failCount)  bits.push(`${failCount} failed`);
+    const kind = okCount === 0 ? 'error' : (emptyCount || failCount) ? 'warning' : 'success';
+    showToastSafe('Backup: ' + bits.join(' · ') + '. Check the Summary sheet for details.', kind);
+}
+
+/* ── CSV export ─────────────────────────────────────────── */
+function exportCSV() {
+    if (!SHEET) {
+        showToastSafe('Select a section first before exporting.', 'error');
+        return;
+    }
+    const pass = clampPct(parseFloat($('numPass').value) || 0);
+    const missingZero = $('chkMissingZero').checked;
+    const selected   = SHEET.columns.filter(c => selectedCols.has(c.key));
+    const courseCols = selected.filter(c => c.type !== 'defense');   // only points-based ones enter the Total
+    const hasDefense = false;   // no live defense
+
+    if (!courseCols.length && !hasDefense) {
+        alert('Please select at least one column.');
+        return;
+    }
+
+    const head = ['#', 'Student No', 'Name',
+        ...courseCols.map(c => `${c.title} (/${c.max || '?'})`),
+        'Total', 'Max', 'Percentage', 'Remark'];
+    if (hasDefense) head.push('Defense (avg /100)', 'Defense (1.00-5.00)', 'Defense Source', 'Defense Remark');
+    const hasCourse = SHEET.columns.some(c => c.type === 'activity' || c.type === 'form');
+    const hasFinal  = hasCourse || hasDefense;
+    if (hasFinal) {
+        const finLbl = hasDefense ? 'Final Average' : 'Final (coursework)';
+        head.push(finLbl, 'Final (1.00-5.00)', 'Final Remark');
+    }
+    const termMode = SHEET.term_mode === true;
+    if (termMode) head.push('Midterm', 'Final', 'General Ave', 'Equivalent', 'Remark');
+
+    const rows = [head];
+    SHEET.students.forEach((s, i) => {
+        const cells = courseCols.map(c => {
+            const rec = getRec(s.student_no, c.key);
+            return rec ? rec.score : '';
+        });
+
+        const cg = courseworkGrade(s, missingZero);
+        const total  = cg.gotAny ? cg.got : '';
+        const maxOut = cg.gotAny ? cg.max : '';
+        const pctOut = cg.gotAny ? cg.pct.toFixed(1) + '%' : '';
+        const remark = cg.gotAny ? (cg.pct >= pass ? 'Passed' : 'Failed') : 'Not graded';
+
+        const row = [i + 1, s.student_no, s.fullname, ...cells, total, maxOut, pctOut, remark];
+
+        if (hasDefense) {
+            const draw = getRec(s.student_no, 'dfn_raw');
+            const dtx  = getRec(s.student_no, 'dfn_tx');
+            const dv   = defenseRaw(s.student_no);
+            if (dv !== null) {
+                row.push(
+                    dv.toFixed(2),
+                    dtx ? String(dtx.score) : '',
+                    draw.src === 'group' ? 'Group' : 'Individual',
+                    dv >= DEFENSE_PASS ? 'Passed' : 'Failed'
+                );
+            } else {
+                row.push('', '', '', '');
+            }
+        }
+        if (hasFinal) {
+            const fg = finalGrade(cg.pct, cg.gotAny, defenseRaw(s.student_no), hasDefense);
+            if (fg) {
+                row.push(fg.val.toFixed(2), fg.pt, fg.val >= pass ? 'Passed' : 'Failed');
+            } else {
+                row.push('', '', '');
+            }
+        }
+        if (termMode) {
+            const ga = generalAverage(s);
+            if (ga && ga.anyScore) {
+                const eq = transmuteExcel(ga.ave);
+                row.push(
+                    ga.mid ? ga.mid.grade.toFixed(2) : '',
+                    ga.fin ? ga.fin.grade.toFixed(2) : '',
+                    ga.ave.toFixed(2),
+                    eq !== null ? eq : '5.00',
+                    eq !== null ? 'Passed' : 'Failed'
+                );
+            } else {
+                row.push('', '', '', '', '');
+            }
+        }
+        rows.push(row);
+    });
+
+    const csv = rows.map(r => r.map(c => {
+        const v = String(c ?? '');
+        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    }).join(',')).join('\n');
+
+    const blob = new Blob(["\uFEFF" + csv], {
+        type: 'text/csv;charset=utf-8;'
+    });
+    const safeSection = String(SHEET.section || 'section').replace(/[^\w.-]+/g, '_');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `grading_${safeSection}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+/* ── Copy setup from another section ─────────────────────── */
+function sectionLabel(s) {
+    return (s.course ? s.course + ' · ' : '') + s.section + ` (${s.count})`;
+}
+
+function openCopyModal() {
+    if (!SHEET) { showToastSafe('Select the target section first.', 'error'); return; }
+    const cur = SHEET.section;
+    const sel = $('copyFromSection');
+    const others = ALL_SECTIONS.filter(s => s.section !== cur);
+    if (!others.length) {
+        sel.innerHTML = `<option value="">No other sections available</option>`;
+    } else {
+        sel.innerHTML = `<option value="">— Select a section —</option>` +
+            others.map(s => `<option value="${escAttr(s.section)}">${escAttr(sectionLabel(s))}</option>`).join('');
+    }
+    const curObj = ALL_SECTIONS.find(s => s.section === cur);
+    $('copyTargetNote').textContent = 'Copying into: ' + (curObj ? sectionLabel(curObj) : cur);
+    $('copyIncludeSettings').checked = true;
+    $('copyApply').disabled = true;
+    $('copyModal').classList.add('show');
+}
+
+function closeCopyModal() {
+    $('copyModal').classList.remove('show');
+}
+
+async function applyCopy() {
+    if (!SHEET) return;
+    const from = $('copyFromSection').value;
+    if (!from) { showToastSafe('Pick a section to copy from.', 'error'); return; }
+    const incl = $('copyIncludeSettings').checked;
+    const btn = $('copyApply');
+    btn.disabled = true;
+    const d = await apiPost({
+        api: 'copy_activities',
+        to_section: SHEET.section,
+        from_section: from,
+        include_settings: incl ? '1' : '0'
+    });
+    if (!d.success) {
+        showToastSafe(d.message || 'Copy failed', 'error');
+        btn.disabled = false;
+        return;
+    }
+    closeCopyModal();
+    /* Refresh whenever anything landed on the sheet: new activity columns,
+       copied categories, or the grade setup (term mode) being applied. */
+    const changed = (d.copied > 0) || (d.cats > 0) || (incl && d.settings);
+    if (changed) {
+        await loadSheet(SHEET.section);   // reload to show new columns / categories / grade setup
+        const kind = (d.copied > 0 || d.cats > 0) ? 'success' : 'info';
+        showToastSafe(d.message, kind);
+    } else {
+        showToastSafe(d.message || 'Nothing to copy.', 'info');
+    }
+}
+
+/* ── Per-student grade breakdown ────────────────────────── */
+function openBreakdown(sno) {
+    if (!SHEET) return;
+    const s = SHEET.students.find(st => String(st.student_no) === String(sno));
+    if (!s) return;
+    $('bdName').textContent = s.fullname || 'Student';
+    $('bdSno').textContent = s.student_no || '';
+    $('bdBody').innerHTML = (SHEET.term_mode === true ? buildBreakdownTerm(s) : buildBreakdownFlat(s)) + buildStatusPicker(s);
+    $('bdBody').querySelectorAll('.bd-st-btn').forEach(btn => {
+        btn.addEventListener('click', () => setStudentStatus(s.student_no, btn.dataset.status));
+    });
+    $('breakdownModal').classList.add('show');
+}
+function closeBreakdown() { $('breakdownModal').classList.remove('show'); }
+
+function buildStatusPicker(s) {
+    const cur = (SHEET.statuses || {})[s.student_no] || '';
+    const opts = [['', 'Auto'], ['INC', 'INC'], ['DRP', 'DRP'], ['W', 'W']];
+    const btns = opts.map(([v, lbl]) =>
+        `<button type="button" class="bd-st-btn ${cur === v ? 'active' : ''}" data-status="${v}">${lbl}</button>`).join('');
+    return `<div class="bd-status">
+        <div class="bd-status-lbl">Final status <span class="bd-note">overrides the computed remark</span></div>
+        <div class="bd-status-btns">${btns}</div>
+    </div>`;
+}
+
+async function setStudentStatus(sno, status) {
+    if (!SHEET) return;
+    const d = await apiPost({ api: 'set_student_status', section: SHEET.section, student_no: sno, status });
+    if (!d.success) { showToastSafe(d.message || 'Could not save status.', 'error'); return; }
+    if (!SHEET.statuses) SHEET.statuses = {};
+    if (status) SHEET.statuses[sno] = status; else delete SHEET.statuses[sno];
+    render();
+    openBreakdown(sno);   // refresh active state
+    showToastSafe(status ? `Marked as ${status} (${STATUS_FULL[status]}).` : 'Status cleared — back to computed grade.', 'success');
+}
+
+/* Remark row for the breakdown modal. A final-status override (INC/DRP/W)
+   wins over the computed Passed/Failed — same rule as the badge on the sheet
+   row (see render / SHEET.statuses). Returns { cls, row } so the caller can
+   also neutralise the pass/fail colour of the surrounding .bd-final box. */
+function bdRemark(s, isPass) {
+    const st = (SHEET.statuses || {})[s.student_no] || '';
+    if (st) {
+        return {
+            cls: 'bd-override',
+            row: `<div class="bd-final-row"><span>Remark</span><span class="bd-remark bd-r-status">${st} — ${escHtml(STATUS_FULL[st] || st)}</span></div>`,
+        };
+    }
+    return {
+        cls: isPass ? 'bd-pass' : 'bd-fail',
+        row: `<div class="bd-final-row"><span>Remark</span><span class="bd-remark ${isPass ? 'bd-r-pass' : 'bd-r-fail'}">${isPass ? 'Passed' : 'Failed'}</span></div>`,
+    };
+}
+
+function bdActRow(name, rec, mx) {
+    const score = rec ? `${Number(rec.score)} <span class="bd-max">/ ${mx}</span>`
+                      : `<span class="bd-blank">— / ${mx}</span>`;
+    return `<div class="bd-act"><span class="bd-act-name">${escHtml(name)}</span><span class="bd-act-score">${score}</span></div>`;
+}
+
+/* Term mode: Midterm/Final → categories (weight) → activities, then General Average */
+function buildBreakdownTerm(s) {
+    const ga = generalAverage(s);
+    if (!ga || !ga.anyScore) return `<div class="bd-empty">No grades yet for this student.</div>`;
+
+    let html = '';
+    [['midterm', 'Midterm'], ['final', 'Final']].forEach(([tKey, tLabel]) => {
+        const cats = (SHEET.categories || []).filter(c => c.term === tKey);
+        if (!cats.length) return;
+        const tg = termGrade(s, tKey);
+        html += `<div class="bd-term">
+            <div class="bd-term-head"><span>${tLabel}</span><span class="bd-term-grade">${tg ? tg.grade.toFixed(1) : '—'}</span></div>`;
+        cats.forEach(cat => {
+            const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form') && c.term === tKey && c.category_id === cat.id);
+            let raw = 0, mx = 0, rows = '';
+            acts.forEach(a => {
+                const rec = getRec(s.student_no, a.key);
+                const amax = a.max || 0; mx += amax;
+                if (rec) raw += Number(rec.score) || 0;
+                rows += bdActRow(a.title, rec, amax);
+            });
+            const catPct = mx > 0 ? (raw / mx * 100) : 0;
+            html += `<div class="bd-cat">
+                <div class="bd-cat-head"><span>${escHtml(cat.name)} <span class="bd-wt">${Number(cat.weight) || 0}%</span></span><span class="bd-cat-pct">${catPct.toFixed(1)}%</span></div>
+                ${rows || '<div class="bd-act bd-act-empty">No activities</div>'}
+            </div>`;
+        });
+        html += `</div>`;
+    });
+
+    const equiv = transmuteExcel(ga.ave);
+    const passed = equiv !== null;
+    const note = (ga.mid && ga.fin) ? '= (Midterm + Final) ÷ 2' : (ga.mid ? '= Midterm only' : '= Final only');
+    const rem = bdRemark(s, passed);
+    html += `<div class="bd-final ${rem.cls}">
+        <div class="bd-final-row"><span>General average <span class="bd-note">${note}</span></span><span class="bd-final-num">${ga.ave.toFixed(2)}</span></div>
+        <div class="bd-final-row"><span>Equivalent</span><span class="bd-final-num">${passed ? equiv : '5.00'}</span></div>
+        ${rem.row}
+    </div>`;
+    return html;
+}
+
+/* Flat mode: selected activities/forms → coursework % → equivalent */
+function buildBreakdownFlat(s) {
+    const missingZero = $('chkMissingZero').checked;
+    const pass = clampPct(parseFloat($('numPass').value) || 0);
+    const cg = courseworkGrade(s, missingZero);
+    if (!cg.gotAny) return `<div class="bd-empty">No grades yet for this student.</div>`;
+
+    const sel = SHEET.columns.filter(c => selectedCols.has(c.key));
+    const list = [...sel.filter(c => c.type === 'activity'), ...sel.filter(c => c.type === 'form')];
+    let rows = '';
+    list.forEach(c => {
+        const rec = getRec(s.student_no, c.key);
+        const cmax = c.max || (rec ? rec.max : 0) || 0;
+        const wt = (cg.weighted && (c.type === 'activity' || c.type === 'form') && Number(c.weight) > 0)
+            ? ` <span class="bd-wt">${Number(c.weight)}%</span>` : '';
+        rows += `<div class="bd-act"><span class="bd-act-name">${escHtml(c.title)}${wt}</span><span class="bd-act-score">${rec ? `${Number(rec.score)} <span class="bd-max">/ ${cmax}</span>` : `<span class="bd-blank">— / ${cmax}</span>`}</span></div>`;
+    });
+
+    const isPass = cg.pct >= pass;
+    const pt = transmutePoint(cg.pct);
+    const method = cg.weighted
+        ? 'Weighted average — Σ(score ÷ max × weight) ÷ total weight'
+        : 'Points-based — Σ score ÷ Σ max';
+
+    const rem = bdRemark(s, isPass);
+    return `<div class="bd-method">${method}</div>
+        <div class="bd-cat">
+            <div class="bd-cat-head"><span>Activities</span><span class="bd-cat-pct">${cg.pct.toFixed(1)}%</span></div>
+            ${rows}
+        </div>
+        <div class="bd-final ${rem.cls}">
+            <div class="bd-final-row"><span>Final grade</span><span class="bd-final-num">${cg.pct.toFixed(1)}%</span></div>
+            <div class="bd-final-row"><span>Equivalent</span><span class="bd-final-num">${pt}</span></div>
+            ${rem.row}
+        </div>`;
+}
+
+/* ── helpers ────────────────────────────────────────────── */
+function escAttr(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function clampPct(n) {
+    return Math.max(0, Math.min(100, n));
+}
+
+function showToastSafe(msg, type) {
+    if (typeof showToast === 'function') showToast(msg, type);
+    else console.log(type + ':', msg);
+}
+if (typeof escHtml !== 'function') {
+    window.escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/* ── wire up ────────────────────────────────────────────── */
+$('selSection').addEventListener('change', e => loadSheet(e.target.value));
+$('txtSearch').addEventListener('input', render);
+$('numPass').addEventListener('input', render);
+$('chkMissingZero').addEventListener('change', render);
+$('chkTermMode').addEventListener('change', async () => {
+    if (!SHEET) return;
+    const on = $('chkTermMode').checked;
+    const section = SHEET.section;
+    await apiPost({ api: 'set_term_mode', section, value: on ? '1' : '0' });
+    await loadSheet(section);   // reload to fetch the seeded categories
+    if (on) showToastSafe('Term grading on. Open "Grade setup" to review Midterm/Final categories & weights.', 'success');
+});
+$('btnGradeSetup').addEventListener('click', openSetupModal);
+$('setupClose').addEventListener('click', closeSetupModal);
+$('btnTransmute').addEventListener('click', openTmModal);
+$('tmCancel').addEventListener('click', closeTmModal);
+$('tmAddBand').addEventListener('click', tmAddBand);
+$('tmSave').addEventListener('click', saveTm);
+$('bdClose').addEventListener('click', closeBreakdown);
+/* View-only breakdown: also dismiss on backdrop click and Escape, so browsing
+   student-to-student doesn't require aiming for the Close button. */
+$('breakdownModal').addEventListener('click', e => {
+    if (e.target === $('breakdownModal')) closeBreakdown();
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && $('breakdownModal').classList.contains('show')) closeBreakdown();
+});
+/* bulk selection bar */
+document.querySelectorAll('.sel-st-btn').forEach(btn => {
+    btn.addEventListener('click', () => bulkSetStatus(btn.dataset.status));
+});
+$('selBarClear').addEventListener('click', () => {
+    selectedStudents.clear();
+    render();
+});
+
+/* ── Toolbar "More" overflow menu (open / outside-click / Escape) ── */
+(function () {
+    const more = $('gsMore');
+    if (!more) return;
+    const trigger = $('btnMore');
+    const closeMore = () => { more.classList.remove('open'); if (trigger) trigger.setAttribute('aria-expanded', 'false'); };
+    if (trigger) trigger.addEventListener('click', e => {
+        e.stopPropagation();
+        const open = more.classList.toggle('open');
+        trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    $('moreMenu').addEventListener('click', closeMore);                              // close after picking an item
+    document.addEventListener('click', e => { if (!more.contains(e.target)) closeMore(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMore(); });
+})();
+
+$('btnExport').addEventListener('click', exportCSV);
+$('btnBackup').addEventListener('click', exportBackup);
+$('btnPrint').addEventListener('click', () => {
+    if (!SHEET) {
+        showToastSafe('Select a section first before printing.', 'error');
+        return;
+    }
+    window.print();
+});
+$('btnAddActivity').addEventListener('click', openActModal);
+$('actCancel').addEventListener('click', closeActModal);
+$('actSave').addEventListener('click', saveActivity);
+$('delActCancel').addEventListener('click', closeDelModal);
+$('delActConfirm').addEventListener('click', confirmDeleteActivity);
+$('bulkFillCancel').addEventListener('click', closeBulkFillModal);
+$('bulkFillApply').addEventListener('click', applyBulkFill);
+$('bulkFillScore').addEventListener('keydown', e => {
+    if (e.key === 'Enter') applyBulkFill();
+});
+$('btnImport').addEventListener('click', openImportModal);
+$('importCancel').addEventListener('click', closeImportModal);
+$('importApply').addEventListener('click', applyImport);
+$('importActivity').addEventListener('change', () => { if (importRaw) validateImport(); });
+$('importCapMax').addEventListener('change', () => { if (importRaw) validateImport(); });
+$('importFile').addEventListener('change', e => handleImportFile(e.target.files[0]));
+/* drag-and-drop onto the drop zone */
+(function () {
+    const drop = $('importDrop');
+    if (!drop) return;
+    ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => {
+        e.preventDefault(); e.stopPropagation(); drop.classList.add('dragging');
+    }));
+    ['dragleave', 'dragend'].forEach(ev => drop.addEventListener(ev, e => {
+        e.preventDefault(); e.stopPropagation(); drop.classList.remove('dragging');
+    }));
+    drop.addEventListener('drop', e => {
+        e.preventDefault(); e.stopPropagation(); drop.classList.remove('dragging');
+        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f) handleImportFile(f);
+    });
+})();
+$('importFileRemove').addEventListener('click', clearImportFileUI);
+$('importSample').addEventListener('click', e => {
+    e.preventDefault();
+    downloadSampleCsv();
+});
+$('btnCopyFrom').addEventListener('click', openCopyModal);
+$('copyCancel').addEventListener('click', closeCopyModal);
+$('copyApply').addEventListener('click', applyCopy);
+$('copyFromSection').addEventListener('change', () => {
+    $('copyApply').disabled = !$('copyFromSection').value;
+});
+/* ── Pinned sections wiring ─────────────────────────────── */
+$('pinViewToggle').addEventListener('click', toggleSectionView);
+$('btnManageSections').addEventListener('click', openPinModal);
+$('pinCancel').addEventListener('click', closePinModal);
+$('pinSave').addEventListener('click', savePinnedSections);
+$('pinSearch').addEventListener('input', e => buildPinList(e.target.value));
+$('pinSelectAll').addEventListener('click', () => {
+    /* select all currently-visible (filtered) rows */
+    $('pinList').querySelectorAll('input[data-section]').forEach(cb => {
+        cb.checked = true;
+        pinDraft.add(cb.dataset.section);
+    });
+    updatePinCount();
+});
+$('pinClearAll').addEventListener('click', () => {
+    $('pinList').querySelectorAll('input[data-section]').forEach(cb => {
+        cb.checked = false;
+        pinDraft.delete(cb.dataset.section);
+    });
+    updatePinCount();
+});
+$('pinList').addEventListener('change', e => {
+    const cb = e.target.closest('input[data-section]');
+    if (!cb) return;
+    if (cb.checked) pinDraft.add(cb.dataset.section);
+    else pinDraft.delete(cb.dataset.section);
+    updatePinCount();
+});
+/* ── Modern tooltips (data-tip) ─────────────────────────────
+   A single floating bubble positioned with fixed coordinates, so it
+   never gets clipped by the scrolling grade sheet. Works for elements
+   rendered later (event delegation on document). */
+(function initTooltips() {
+    let tip = null;
+    let current = null;
+
+    function ensure() {
+        if (!tip) {
+            tip = document.createElement('div');
+            tip.className = 'tip-bubble';
+            tip.setAttribute('role', 'tooltip');
+            document.body.appendChild(tip);
+        }
+        return tip;
+    }
+
+    function show(target) {
+        const text = target.getAttribute('data-tip');
+        if (!text) return;
+        current = target;
+        const el = ensure();
+        el.textContent = text;
+        /* measure while visible-but-transparent for correct size */
+        el.style.top = '-9999px';
+        el.style.left = '0px';
+        el.classList.add('show');
+        const b = target.getBoundingClientRect();
+        const t = el.getBoundingClientRect();
+        let below = false;
+        let top = b.top - t.height - 10;
+        if (top < 6) { top = b.bottom + 10; below = true; }
+        let left = b.left + b.width / 2 - t.width / 2;
+        left = Math.max(6, Math.min(left, window.innerWidth - t.width - 6));
+        el.style.top = Math.round(top) + 'px';
+        el.style.left = Math.round(left) + 'px';
+        el.classList.toggle('below', below);
+        el.style.setProperty('--arrow-x', Math.round((b.left + b.width / 2) - left) + 'px');
+    }
+
+    function hide() {
+        current = null;
+        if (tip) tip.classList.remove('show');
+    }
+
+    document.addEventListener('mouseover', e => {
+        const t = e.target.closest && e.target.closest('[data-tip]');
+        if (t && t !== current) show(t);
+    });
+    document.addEventListener('mouseout', e => {
+        const t = e.target.closest && e.target.closest('[data-tip]');
+        if (t) hide();
+    });
+    document.addEventListener('focusin', e => {
+        const t = e.target.closest && e.target.closest('[data-tip]');
+        if (t) show(t);
+    });
+    document.addEventListener('focusout', hide);
+    /* hide on scroll/resize so the bubble never floats away from its anchor */
+    window.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', hide);
+})();
+
+loadSections();
