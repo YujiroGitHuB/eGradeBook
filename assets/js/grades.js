@@ -178,36 +178,73 @@ function sortStudents(list) {
 const sortArrow = k => sortKey !== k ? ''
     : (sortDir === 1 ? ' <i class="bi bi-caret-up-fill sort-ar"></i>' : ' <i class="bi bi-caret-down-fill sort-ar"></i>');
 
-async function apiGet(params) {
-    const qs = new URLSearchParams(params);
-    const res = await fetch(`${API}?${qs}`);
-    const txt = await res.text();
+/* Free-hosting (InfinityFree / free.nf) anti-bot check: instead of our JSON the
+   host sometimes returns a tiny JavaScript challenge (aes.js / toNumbers() /
+   __test cookie) that only a full-page navigation can solve. Detect it so we
+   don't dump raw markup as an "error", and recover by reloading once. */
+function isHostChallenge(txt) {
+    if (!txt) return false;
+    const t = txt.slice(0, 800).toLowerCase();
+    return t.includes('aes.js')
+        || t.includes('tonumbers(')
+        || t.includes('slowaes')
+        || t.includes('__test');
+}
+
+let __hostReloadScheduled = false;
+let __hostChallengeNotified = false;
+function handleHostChallenge() {
+    /* only one action per page life — many parallel API calls can all trip this */
+    if (__hostReloadScheduled || __hostChallengeNotified) return;
+    const KEY = 'ff_hostcheck_ts';
+    const last = parseInt(sessionStorage.getItem(KEY) || '0', 10);
+    const recentlyReloaded = Date.now() - last < 20000;   // reloaded within last 20s?
+    if (!recentlyReloaded) {
+        /* First hit (or an old one): a full reload lets the browser run the
+           host's script and set the __test cookie, after which fetch() works. */
+        __hostReloadScheduled = true;
+        sessionStorage.setItem(KEY, String(Date.now()));
+        showToastSafe('Verifying your browser with the host… reloading.', 'info');
+        setTimeout(() => location.reload(), 1200);
+    } else {
+        /* Already reloaded and STILL challenged → stop looping; explain it. */
+        __hostChallengeNotified = true;
+        showToastSafe('The host’s security check is blocking data requests. Wait a moment and try again, or use a different browser/network.', 'error');
+    }
+}
+
+/* Normalise an API text response: host-challenge → {challenge}, bad JSON →
+   friendly message, otherwise the parsed JSON. */
+function parseApiResponse(txt) {
+    if (isHostChallenge(txt)) {
+        handleHostChallenge();
+        return { success: false, challenge: true, message: 'Host security check — please wait…' };
+    }
     try {
         return JSON.parse(txt);
     } catch (e) {
         console.error('non-JSON:', txt);
-        return {
-            success: false,
-            message: txt.slice(0, 200)
-        };
+        return { success: false, message: (txt || '').trim().slice(0, 200) || 'Unexpected server response.' };
+    }
+}
+
+async function apiGet(params) {
+    const qs = new URLSearchParams(params);
+    try {
+        const res = await fetch(`${API}?${qs}`);
+        return parseApiResponse(await res.text());
+    } catch (e) {
+        return { success: false, message: 'Network error — check your connection.' };
     }
 }
 async function apiPost(params) {
     const fd = new FormData();
     Object.entries(params).forEach(([k, v]) => fd.append(k, v));
-    const res = await fetch(API, {
-        method: 'POST',
-        body: fd
-    });
-    const txt = await res.text();
     try {
-        return JSON.parse(txt);
+        const res = await fetch(API, { method: 'POST', body: fd });
+        return parseApiResponse(await res.text());
     } catch (e) {
-        console.error('non-JSON:', txt);
-        return {
-            success: false,
-            message: txt.slice(0, 200)
-        };
+        return { success: false, message: 'Network error — check your connection.' };
     }
 }
 
@@ -342,7 +379,14 @@ async function loadSheet(section) {
         section
     });
     if (!d.success) {
-        $('gsArea').innerHTML = `<div class="gs-empty"><i class="bi bi-exclamation-triangle"></i>${escHtml(d.message || 'Error loading sheet')}</div>`;
+        if (d.challenge) {
+            /* host anti-bot check — a reload is already scheduled (handleHostChallenge) */
+            $('gsArea').innerHTML = `<div class="gs-empty"><div class="spinner-accent" style="margin:0 auto 1rem;"></div>
+                Verifying your browser with the host…
+                <div style="color:var(--muted);font-size:.85rem;margin-top:.4rem;">This page will reload automatically. If it keeps looping, try another browser or network.</div></div>`;
+        } else {
+            $('gsArea').innerHTML = `<div class="gs-empty"><i class="bi bi-exclamation-triangle"></i>${escHtml(d.message || 'Error loading sheet')}</div>`;
+        }
         return;
     }
     const prevSection = SHEET ? SHEET.section : null;
