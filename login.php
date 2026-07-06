@@ -5,7 +5,6 @@ if (!empty($_SESSION['admin_id'])) {
   header('Location: index.php');
   exit;
 }
-
 require_once 'inc/db.php';
 
 $error = '';
