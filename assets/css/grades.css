@@ -1531,7 +1531,19 @@ table.gs tbody td.fin-cell {
     margin-bottom: .35rem;
 }
 
-.bd-cat-pct { color: var(--muted); font-variant-numeric: tabular-nums; }
+.bd-cat-pct { color: var(--muted); font-variant-numeric: tabular-nums; font-size: .74rem; text-align: right; }
+.bd-cat-pct .bd-contrib { color: var(--accent); font-weight: 700; }
+
+/* "Midterm/Final = sum of the points above = N" — makes the roll-up explicit */
+.bd-term-sum {
+    margin-top: .5rem;
+    padding-top: .45rem;
+    border-top: 1px dashed var(--border);
+    font-size: .78rem;
+    color: var(--muted);
+    text-align: right;
+}
+.bd-term-sum b { color: var(--text); font-variant-numeric: tabular-nums; }
 
 .bd-wt {
     font-size: .68rem;

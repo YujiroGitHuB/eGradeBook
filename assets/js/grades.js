@@ -1920,6 +1920,181 @@ async function exportBackup() {
     showToastSafe('Backup: ' + bits.join(' · ') + '. Check the Summary sheet for details.', kind);
 }
 
+/* ── Export ALL sections → one combined PDF (page per section) ──
+   Presentation/printout of the final grades (Midterm/Final/General Ave/
+   Equivalent/Remark in term mode, or Final %/Equivalent/Remark in flat mode).
+   Uses jsPDF + autotable, loaded on demand from CDN (same pattern as the xlsx
+   backup). This is NOT a data backup — use "Backup all (Excel)" for re-import. */
+function loadExternalScript(src) {
+    return new Promise((resolve, reject) => {
+        const sel = `script[data-src="${src}"]`;
+        const ex = document.querySelector(sel);
+        if (ex) {
+            if (ex.dataset.loaded === '1') return resolve();
+            ex.addEventListener('load', () => resolve());
+            ex.addEventListener('error', () => reject(new Error('load failed')));
+            return;
+        }
+        const sc = document.createElement('script');
+        sc.src = src; sc.dataset.src = src;
+        sc.onload = () => { sc.dataset.loaded = '1'; resolve(); };
+        sc.onerror = () => reject(new Error('load failed'));
+        document.head.appendChild(sc);
+    });
+}
+
+/* Export the current section only → PDF (same layout as Export all). */
+async function exportSectionPDF() {
+    if (!SHEET || !SHEET.section) { showToastSafe('Select a section first before exporting.', 'error'); return; }
+    const safe = String(SHEET.section).replace(/[^\w.-]+/g, '_') || 'section';
+    return buildSectionsPDF([SHEET.section], `eGradeBook_${safe}`);
+}
+
+/* Export every section → one combined PDF. */
+async function exportAllPDF() {
+    const ms = await apiGet({ api: 'my_sections' });
+    const sections = (ms && ms.success && Array.isArray(ms.sections)) ? ms.sections : [];
+    if (!sections.length) { showToastSafe('No sections to export yet.', 'info'); return; }
+    return buildSectionsPDF(sections, 'eGradeBook_grades');
+}
+
+/* Core: render the given sections (page per section) into one PDF and save it. */
+async function buildSectionsPDF(sections, fileBase) {
+    showToastSafe('Preparing PDF…', 'info');
+    try {
+        await loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+        await loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
+    } catch (e) {
+        showToastSafe('Could not load the PDF library — check your connection.', 'error');
+        return;
+    }
+    const jsPDFctor = window.jspdf && window.jspdf.jsPDF;
+    if (!jsPDFctor) { showToastSafe('PDF library unavailable.', 'error'); return; }
+
+    const pass = clampPct(parseFloat($('numPass').value) || 75);
+    const missingZero = $('chkMissingZero') ? $('chkMissingZero').checked : false;
+
+    const doc = new jsPDFctor({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    const teacher = (document.querySelector('.user-pill span')?.textContent || '').trim();
+
+    /* the grade helpers read the globals SHEET / selectedCols — swap them per
+       section, then restore so the live view is untouched afterwards */
+    const savedSheet = SHEET, savedSel = selectedCols;
+    let pageAdded = false, okCount = 0, emptyCount = 0, failCount = 0;
+
+    try {
+        for (const sec of sections) {
+            let d = null;
+            try { d = await apiGet({ api: 'sheet', section: sec }); } catch (e) { d = null; }
+            if (!d || !d.success) { failCount++; continue; }
+
+            SHEET = d;
+            selectedCols = new Set(d.columns.filter(c => c.type === 'activity' || c.responded > 0).map(c => c.key));
+            if (selectedCols.size === 0) d.columns.forEach(c => selectedCols.add(c.key));
+
+            const termMode = d.term_mode === true;
+            const students = d.students || [];
+            const st = d.statuses || {};
+
+            /* the individual assessment columns (activities + forms) shown on the
+               sheet — so the PDF has the full breakdown, not just final grades */
+            const assessCols = (d.columns || []).filter(c => (c.type === 'activity' || c.type === 'form') && selectedCols.has(c.key));
+            const assessHeads = assessCols.map(c => `${c.title}\n/${c.max || 0}`);
+
+            const tailHeads = termMode
+                ? ['Midterm', 'Final', 'General Ave', 'Equivalent', 'Remark']
+                : ['Final %', 'Equivalent', 'Remark'];
+            const head = [['#', 'Student No', 'Name', ...assessHeads, ...tailHeads]];
+            const body = [];
+
+            students.forEach((s, i) => {
+                const status = st[s.student_no] || '';
+                const remarkOverride = status ? (STATUS_FULL[status] || status) : null;
+                /* per-assessment score cells */
+                const scoreCells = assessCols.map(c => {
+                    const rec = getRec(s.student_no, c.key);
+                    return (rec && rec.score !== '' && rec.score !== null && rec.score !== undefined) ? Number(rec.score) : '—';
+                });
+                if (termMode) {
+                    const mid = termGrade(s, 'midterm'), fin = termGrade(s, 'final'), ga = generalAverage(s);
+                    const equiv = (ga && ga.anyScore) ? transmuteExcel(ga.ave) : null;
+                    const remark = remarkOverride || ((ga && ga.anyScore) ? (equiv !== null ? 'Passed' : 'Failed') : '—');
+                    body.push([
+                        i + 1, s.student_no, s.fullname || '', ...scoreCells,
+                        mid ? mid.grade.toFixed(1) : '—',
+                        fin ? fin.grade.toFixed(1) : '—',
+                        (ga && ga.anyScore) ? ga.ave.toFixed(2) : '—',
+                        status ? '—' : ((ga && ga.anyScore) ? (equiv !== null ? equiv : '5.00') : '—'),
+                        remark,
+                    ]);
+                } else {
+                    const cg = courseworkGrade(s, missingZero);
+                    const pt = cg.gotAny ? transmutePoint(cg.pct) : '—';
+                    const remark = remarkOverride || (cg.gotAny ? (cg.pct >= pass ? 'Passed' : 'Failed') : '—');
+                    body.push([
+                        i + 1, s.student_no, s.fullname || '', ...scoreCells,
+                        cg.gotAny ? cg.pct.toFixed(1) + '%' : '—',
+                        status ? '—' : pt,
+                        remark,
+                    ]);
+                }
+            });
+
+            if (!students.length) emptyCount++; else okCount++;
+
+            if (pageAdded) doc.addPage();
+            pageAdded = true;
+
+            doc.setFontSize(15); doc.setTextColor(20);
+            doc.text('eGradeBook — Grade Sheet', 40, 42);
+            doc.setFontSize(9.5); doc.setTextColor(110);
+            const meta = `Section: ${sec}    ·    Mode: ${termMode ? 'Term (Midterm / Final)' : 'Coursework'}    ·    Passing: ${pass}%`;
+            doc.text(meta, 40, 60);
+            doc.text(`${teacher ? 'Faculty: ' + teacher + '    ·    ' : ''}Exported: ${new Date().toLocaleString()}`, 40, 74);
+            doc.setTextColor(0);
+
+            doc.autoTable({
+                head, body, startY: 88,
+                styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak', halign: 'center', valign: 'middle' },
+                headStyles: { fillColor: [37, 99, 235], textColor: 255, halign: 'center', fontSize: 6.8 },
+                columnStyles: {
+                    0: { halign: 'center', cellWidth: 20 },
+                    1: { halign: 'center' },
+                    2: { halign: 'left', cellWidth: 92 },
+                },
+                didParseCell: (data) => {
+                    if (data.section === 'body' && data.column.index === head[0].length - 1) {
+                        const v = String(data.cell.raw || '');
+                        if (v === 'Passed') data.cell.styles.textColor = [22, 128, 61];
+                        else if (v === 'Failed') data.cell.styles.textColor = [190, 40, 40];
+                        else if (v !== '—') data.cell.styles.textColor = [180, 100, 10];   // INC/DRP/W
+                    }
+                },
+                didDrawPage: () => {
+                    doc.setFontSize(8); doc.setTextColor(150);
+                    const w = doc.internal.pageSize.getWidth(), h = doc.internal.pageSize.getHeight();
+                    doc.text(`Page ${doc.internal.getNumberOfPages()}`, w - 60, h - 20);
+                    doc.setTextColor(0);
+                },
+                margin: { left: 40, right: 40 },
+            });
+
+            await new Promise(r => setTimeout(r, 120));   // ease off InfinityFree between requests
+        }
+    } finally {
+        SHEET = savedSheet; selectedCols = savedSel;   // restore the live view's state
+    }
+
+    if (!pageAdded) { showToastSafe('Nothing to export.', 'info'); return; }
+    const stamp = new Date().toISOString().slice(0, 10);
+    doc.save(`${fileBase}_${stamp}.pdf`);
+
+    const bits = [`${okCount} section${okCount === 1 ? '' : 's'}`];
+    if (emptyCount) bits.push(`${emptyCount} empty`);
+    if (failCount)  bits.push(`${failCount} failed`);
+    showToastSafe('PDF: ' + bits.join(' · ') + '.', failCount ? 'warning' : 'success');
+}
+
 /* ── CSV export ─────────────────────────────────────────── */
 function exportCSV() {
     if (!SHEET) {
@@ -2081,10 +2256,12 @@ async function applyCopy() {
 }
 
 /* ── Per-student grade breakdown ────────────────────────── */
+let bdStudentNo = null;   // student_no whose breakdown is currently open (for Save PDF)
 function openBreakdown(sno) {
     if (!SHEET) return;
     const s = SHEET.students.find(st => String(st.student_no) === String(sno));
     if (!s) return;
+    bdStudentNo = s.student_no;
     $('bdName').textContent = s.fullname || 'Student';
     $('bdSno').textContent = s.student_no || '';
     $('bdBody').innerHTML = (SHEET.term_mode === true ? buildBreakdownTerm(s) : buildBreakdownFlat(s)) + buildStatusPicker(s);
@@ -2094,6 +2271,113 @@ function openBreakdown(sno) {
     $('breakdownModal').classList.add('show');
 }
 function closeBreakdown() { $('breakdownModal').classList.remove('show'); }
+
+/* Save the OPEN student's breakdown as a one-page PDF grade slip — the same
+   "% × weight = points" view shown in the modal, printable/shareable so each
+   student can see exactly how their grade was built. */
+async function exportStudentPDF() {
+    if (!SHEET || !bdStudentNo) { showToastSafe('Open a student first.', 'error'); return; }
+    const s = SHEET.students.find(st => String(st.student_no) === String(bdStudentNo));
+    if (!s) { showToastSafe('Student not found.', 'error'); return; }
+
+    showToastSafe('Preparing grade slip…', 'info');
+    try {
+        await loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    } catch (e) { showToastSafe('Could not load the PDF library — check your connection.', 'error'); return; }
+    const jsPDFctor = window.jspdf && window.jspdf.jsPDF;
+    if (!jsPDFctor) { showToastSafe('PDF library unavailable.', 'error'); return; }
+
+    const doc = new jsPDFctor({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const left = 48, right = pageW - 48;
+    let y = 56;
+    const nl = (h = 16) => { y += h; if (y > pageH - 50) { doc.addPage(); y = 56; } };
+    const put = (text, x, o = {}) => {
+        doc.setFont('helvetica', o.bold ? 'bold' : 'normal');
+        doc.setFontSize(o.size || 10);
+        doc.setTextColor(...(o.color || [20, 20, 20]));
+        doc.text(String(text), x, y, o.align ? { align: o.align } : undefined);
+    };
+    const rule = () => { doc.setDrawColor(210); doc.line(left, y, right, y); };
+
+    put('eGradeBook — Grade Slip', left, { bold: true, size: 16 }); nl(22);
+    put(s.fullname || 'Student', left, { bold: true, size: 13 });
+    put(`No. ${s.student_no || ''}`, right, { size: 10, color: [110, 110, 110], align: 'right' }); nl(16);
+    const teacher = (document.querySelector('.user-pill span')?.textContent || '').trim();
+    put(`Section: ${SHEET.section}${teacher ? '   ·   Faculty: ' + teacher : ''}`, left, { size: 9, color: [110, 110, 110] }); nl(12);
+    put(`Generated: ${new Date().toLocaleString()}`, left, { size: 9, color: [110, 110, 110] }); nl(10);
+    rule(); nl(22);
+
+    const termMode = SHEET.term_mode === true;
+    const status = (SHEET.statuses || {})[s.student_no] || '';
+
+    if (termMode) {
+        [['midterm', 'Midterm'], ['final', 'Final']].forEach(([tKey, tLabel]) => {
+            const cats = (SHEET.categories || []).filter(c => c.term === tKey);
+            if (!cats.length) return;
+            const tg = termGrade(s, tKey);
+            const totalW = cats.reduce((t, c) => t + (Number(c.weight) || 0), 0);
+            put(tLabel, left, { bold: true, size: 12 });
+            put(tg ? tg.grade.toFixed(1) : '—', right, { bold: true, size: 12, color: [37, 99, 235], align: 'right' }); nl(18);
+            cats.forEach(cat => {
+                const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form') && c.term === tKey && c.category_id === cat.id);
+                let raw = 0, mx = 0;
+                acts.forEach(a => { const rec = getRec(s.student_no, a.key); mx += a.max || 0; if (rec) raw += Number(rec.score) || 0; });
+                const catPct = mx > 0 ? raw / mx * 100 : 0;
+                const wt = Number(cat.weight) || 0;
+                const contrib = totalW > 0 ? (catPct / 100 * wt / totalW * 100) : 0;
+                const fracTxt = mx > 0 ? `${raw}/${mx}` : '—';
+                put(`${cat.name} (${wt}%)`, left + 14, { bold: true, size: 10 });
+                put(`${fracTxt} × ${wt}% = ${contrib.toFixed(1)} pts`, right, { size: 9.5, color: [37, 99, 235], align: 'right' }); nl(15);
+                acts.forEach(a => {
+                    const rec = getRec(s.student_no, a.key);
+                    put(a.title, left + 28, { size: 9, color: [90, 90, 90] });
+                    put(rec ? `${Number(rec.score)} / ${a.max || 0}` : `— / ${a.max || 0}`, right, { size: 9, color: [60, 60, 60], align: 'right' }); nl(13);
+                });
+                if (!acts.length) { put('No activities', left + 28, { size: 9, color: [150, 150, 150] }); nl(13); }
+            });
+            put(`${tLabel} = sum of the points above = ${tg ? tg.grade.toFixed(1) : '—'}`, left + 14, { size: 9, color: [110, 110, 110] }); nl(20);
+        });
+
+        const ga = generalAverage(s);
+        const equiv = (ga && ga.anyScore) ? transmuteExcel(ga.ave) : null;
+        rule(); nl(20);
+        put('General Average', left, { bold: true, size: 11 });
+        put(ga && ga.anyScore ? ga.ave.toFixed(2) : '—', right, { bold: true, size: 11, align: 'right' }); nl(16);
+        put('Equivalent', left, { size: 10 });
+        put(status ? '—' : (equiv !== null ? equiv : (ga && ga.anyScore ? '5.00' : '—')), right, { size: 10, align: 'right' }); nl(16);
+        const remark = status ? (STATUS_FULL[status] || status) : ((ga && ga.anyScore) ? (equiv !== null ? 'Passed' : 'Failed') : '—');
+        put('Remark', left, { bold: true, size: 10 });
+        put(remark, right, { bold: true, size: 10, align: 'right', color: status ? [180, 100, 10] : (equiv !== null ? [22, 128, 61] : [190, 40, 40]) }); nl(16);
+    } else {
+        const missingZero = $('chkMissingZero') ? $('chkMissingZero').checked : false;
+        const pass = clampPct(parseFloat($('numPass').value) || 0);
+        const cg = courseworkGrade(s, missingZero);
+        const cols = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form') && selectedCols.has(c.key));
+        put('Coursework', left, { bold: true, size: 12 });
+        put(cg.gotAny ? cg.pct.toFixed(1) + '%' : '—', right, { bold: true, size: 12, color: [37, 99, 235], align: 'right' }); nl(18);
+        cols.forEach(c => {
+            const rec = getRec(s.student_no, c.key);
+            const wtxt = (cg.weighted && Number(c.weight) > 0) ? ` (${Number(c.weight)}%)` : '';
+            put(c.title + wtxt, left + 14, { size: 9, color: [90, 90, 90] });
+            put(rec ? `${Number(rec.score)} / ${c.max || 0}` : `— / ${c.max || 0}`, right, { size: 9, color: [60, 60, 60], align: 'right' }); nl(13);
+        });
+        nl(6); rule(); nl(18);
+        put('Final grade', left, { bold: true, size: 11 });
+        put(cg.gotAny ? cg.pct.toFixed(1) + '%' : '—', right, { bold: true, size: 11, align: 'right' }); nl(16);
+        put('Equivalent', left, { size: 10 });
+        put(status ? '—' : (cg.gotAny ? transmutePoint(cg.pct) : '—'), right, { size: 10, align: 'right' }); nl(16);
+        const isPass = cg.pct >= pass;
+        const remark = status ? (STATUS_FULL[status] || status) : (cg.gotAny ? (isPass ? 'Passed' : 'Failed') : '—');
+        put('Remark', left, { bold: true, size: 10 });
+        put(remark, right, { bold: true, size: 10, align: 'right', color: status ? [180, 100, 10] : (isPass ? [22, 128, 61] : [190, 40, 40]) }); nl(16);
+    }
+
+    const safe = String(s.student_no || 'student').replace(/[^\w.-]+/g, '_');
+    doc.save(`gradeslip_${safe}.pdf`);
+    showToastSafe('Grade slip saved.', 'success');
+}
 
 function buildStatusPicker(s) {
     const cur = (SHEET.statuses || {})[s.student_no] || '';
@@ -2151,6 +2435,7 @@ function buildBreakdownTerm(s) {
         const cats = (SHEET.categories || []).filter(c => c.term === tKey);
         if (!cats.length) return;
         const tg = termGrade(s, tKey);
+        const totalW = cats.reduce((t, c) => t + (Number(c.weight) || 0), 0);
         html += `<div class="bd-term">
             <div class="bd-term-head"><span>${tLabel}</span><span class="bd-term-grade">${tg ? tg.grade.toFixed(1) : '—'}</span></div>`;
         cats.forEach(cat => {
@@ -2163,11 +2448,20 @@ function buildBreakdownTerm(s) {
                 rows += bdActRow(a.title, rec, amax);
             });
             const catPct = mx > 0 ? (raw / mx * 100) : 0;
+            const wt = Number(cat.weight) || 0;
+            /* how many points this category contributes to the term grade —
+               (score ÷ max) × weight (÷ total weight so it always sums to the term). */
+            const contrib = totalW > 0 ? (catPct / 100 * wt / totalW * 100) : 0;
+            const fracTxt = mx > 0 ? `${raw}/${mx}` : '—';
             html += `<div class="bd-cat">
-                <div class="bd-cat-head"><span>${escHtml(cat.name)} <span class="bd-wt">${Number(cat.weight) || 0}%</span></span><span class="bd-cat-pct">${catPct.toFixed(1)}%</span></div>
+                <div class="bd-cat-head">
+                    <span>${escHtml(cat.name)} <span class="bd-wt">${wt}%</span></span>
+                    <span class="bd-cat-pct">${fracTxt} × ${wt}% = <b class="bd-contrib">${contrib.toFixed(1)} pts</b></span>
+                </div>
                 ${rows || '<div class="bd-act bd-act-empty">No activities</div>'}
             </div>`;
         });
+        html += `<div class="bd-term-sum">${tLabel} = sum of the points above = <b>${tg ? tg.grade.toFixed(1) : '—'}</b></div>`;
         html += `</div>`;
     });
 
@@ -2257,6 +2551,7 @@ $('tmCancel').addEventListener('click', closeTmModal);
 $('tmAddBand').addEventListener('click', tmAddBand);
 $('tmSave').addEventListener('click', saveTm);
 $('bdClose').addEventListener('click', closeBreakdown);
+$('bdPdf').addEventListener('click', exportStudentPDF);
 /* View-only breakdown: also dismiss on backdrop click and Escape, so browsing
    student-to-student doesn't require aiming for the Close button. */
 $('breakdownModal').addEventListener('click', e => {
@@ -2292,6 +2587,8 @@ $('selBarClear').addEventListener('click', () => {
 
 $('btnExport').addEventListener('click', exportCSV);
 $('btnBackup').addEventListener('click', exportBackup);
+$('btnPdfSection').addEventListener('click', exportSectionPDF);
+$('btnPdfAll').addEventListener('click', exportAllPDF);
 $('btnPrint').addEventListener('click', () => {
     if (!SHEET) {
         showToastSafe('Select a section first before printing.', 'error');

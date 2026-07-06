@@ -1468,6 +1468,8 @@ if (isset($_GET['api']) || isset($_POST['api'])) {
                         <div class="profile-menu-divider"></div>
                         <div class="gs-more-label">Output</div>
                         <button class="profile-menu-item" id="btnBackup" role="menuitem"><i class="bi bi-file-earmark-excel"></i> Backup all (Excel)</button>
+                        <button class="profile-menu-item" id="btnPdfSection" role="menuitem" title="PDF of the current section's grades"><i class="bi bi-file-earmark-pdf"></i> Export section (PDF)</button>
+                        <button class="profile-menu-item" id="btnPdfAll" role="menuitem" title="One combined PDF of every section's grades"><i class="bi bi-file-earmark-pdf-fill"></i> Export all (PDF)</button>
                         <button class="profile-menu-item" id="btnPrint" role="menuitem"><i class="bi bi-printer"></i> Print</button>
                     </div>
                 </div>
@@ -1807,6 +1809,7 @@ if (isset($_GET['api']) || isset($_POST['api'])) {
             <div id="bdBody" class="bd-body"></div>
             <div class="modal-actions" style="margin-top:1.3rem;">
                 <button class="btn btn-ghost" id="bdClose"><i class="bi bi-x-lg"></i> Close</button>
+                <button class="btn btn-primary" id="bdPdf"><i class="bi bi-file-earmark-pdf"></i> Save PDF</button>
             </div>
         </div>
     </div>
