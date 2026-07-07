@@ -448,6 +448,23 @@ function getRec(studentNo, key) {
     return (SHEET.scores[studentNo] || {})[key];
 }
 
+/* Computed pass/fail of a student — 'passed' | 'failed' | '' (empty when not
+   graded yet, or when a status override INC/DRP/W applies). Used by search so
+   a teacher can type "passed" / "failed" to filter the roster. */
+function studentPassFail(s) {
+    const status = (SHEET.statuses || {})[s.student_no] || '';
+    if (status) return '';                       // INC/DRP/W → not a pass/fail
+    if (SHEET.term_mode === true) {
+        const ga = generalAverage(s);
+        if (!ga || !ga.anyScore) return '';
+        return transmuteExcel(ga.ave) !== null ? 'passed' : 'failed';
+    }
+    const cg = courseworkGrade(s, $('chkMissingZero') ? $('chkMissingZero').checked : false);
+    if (!cg.gotAny) return '';
+    const pass = clampPct(parseFloat($('numPass').value) || 0);
+    return cg.pct >= pass ? 'passed' : 'failed';
+}
+
 /* ── Render the sheet ───────────────────────────────────── */
 function render() {
     if (!SHEET) return;
@@ -471,14 +488,18 @@ function render() {
     }
     /* A search that is exactly a status code ("inc"/"drp"/"w") is treated as a
        status-only filter — otherwise a bare "w" would also match every name
-       containing "w". Anything else does a normal contains-match on name,
-       student no., and the full status label ("incomplete"/"withdrawn"…). */
+       containing "w". Likewise "passed"/"failed" (or "pass"/"fail") filter by
+       the computed remark. Anything else is a normal contains-match on name,
+       student no., status label, and pass/fail word. */
     const codeSearch = search && STATUS_FULL[search.toUpperCase()] ? search.toUpperCase() : null;
+    const pfSearch = (search === 'passed' || search === 'pass') ? 'passed'
+                   : (search === 'failed' || search === 'fail') ? 'failed' : null;
     let students = SHEET.students.filter(s => {
         if (!search) return true;
         const st = (SHEET.statuses || {})[s.student_no] || '';
         if (codeSearch) return st === codeSearch;
-        const stText = st ? (st + ' ' + (STATUS_FULL[st] || '')).toLowerCase() : '';
+        if (pfSearch)   return studentPassFail(s) === pfSearch;
+        const stText = st ? (st + ' ' + (STATUS_FULL[st] || '')).toLowerCase() : studentPassFail(s);
         return (s.fullname || '').toLowerCase().includes(search)
             || (s.student_no || '').toLowerCase().includes(search)
             || stText.includes(search);
