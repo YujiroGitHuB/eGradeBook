@@ -52,6 +52,124 @@ main {
     min-width: 90px;
 }
 
+/* ── Modern section dropdown (custom skin over the native <select>) ── */
+.msel-native {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+.msel {
+    position: relative;
+    min-width: 220px;
+}
+.msel-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: .55rem .7rem;
+    font-size: .9rem;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color .15s ease, background .15s ease;
+}
+.msel-btn:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.msel-btn[aria-expanded="true"] { border-color: var(--accent); }
+.msel-btn-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.msel-btn-label.is-placeholder { color: var(--muted); font-weight: 400; }
+.msel-chev { color: var(--muted); font-size: .8rem; transition: transform .18s ease; }
+.msel-btn[aria-expanded="true"] .msel-chev { transform: rotate(180deg); color: var(--accent); }
+
+.msel-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 60;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .28);
+    padding: .4rem;
+    opacity: 0;
+    transform: translateY(-6px);
+    pointer-events: none;
+    transition: opacity .15s ease, transform .15s ease;
+}
+.msel-panel.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+.msel-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-bottom: .35rem;
+}
+.msel-search-ic {
+    position: absolute;
+    left: .6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    font-size: .82rem;
+    pointer-events: none;
+}
+/* higher specificity so the generic ".gs-field input[type=text]" rule
+   (padding/min-width) doesn't push the text under the search icon */
+.msel .msel-panel .msel-search {
+    width: 100%;
+    min-width: 0;
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .5rem .6rem .5rem 2.1rem;
+    font-size: .85rem;
+    font-family: inherit;
+    outline: none;
+}
+.msel .msel-panel .msel-search::placeholder { color: var(--muted); }
+.msel .msel-panel .msel-search:focus { border-color: var(--accent); }
+
+.msel-list { max-height: 44vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.msel-opt {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: .5rem .6rem;
+    font-size: .88rem;
+    font-family: inherit;
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    transition: background .12s ease;
+}
+.msel-opt:hover { background: var(--surface2); }
+.msel-opt.on { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-weight: 600; }
+.msel-opt-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msel-opt-count {
+    font-size: .72rem;
+    color: var(--muted);
+    background: var(--surface2);
+    border-radius: 999px;
+    padding: 1px 8px;
+    font-variant-numeric: tabular-nums;
+}
+.msel-opt.on .msel-opt-count { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+.msel-opt-check { font-size: .9rem; }
+.msel-empty { padding: .9rem .6rem; text-align: center; color: var(--muted); font-size: .84rem; }
+
 .gs-spacer {
     flex: 1 1 auto;
 }
@@ -1616,6 +1734,17 @@ th.sortable:hover { color: var(--accent); }
 .st-inc { color: #d97706; background: rgba(217, 119, 6, .13); }
 .st-drp { color: var(--muted); background: var(--surface2); }
 .st-w   { color: var(--danger); background: color-mix(in srgb, var(--danger) 13%, transparent); }
+/* teacher's custom final-status label (any text) */
+.st-custom {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: bottom;
+}
 .status-remark { color: var(--text); font-weight: 600; }
 .st-cell { font-weight: 600; }
 
@@ -1645,6 +1774,37 @@ th.sortable:hover { color: var(--accent); }
 }
 .bd-st-btn:hover { border-color: var(--accent); color: var(--text); }
 .bd-st-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* custom final-status label input */
+.bd-status-custom { display: flex; gap: .4rem; margin-top: .5rem; }
+.bd-custom-input {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: .35rem .6rem;
+    font-size: .82rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color .15s ease;
+}
+.bd-custom-input::placeholder { color: var(--muted); }
+.bd-custom-input:focus { border-color: var(--accent); }
+.bd-custom-input.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.bd-custom-set {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 8px;
+    padding: .35rem .9rem;
+    font-size: .82rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all .15s ease;
+}
+.bd-custom-set:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* ── Bulk selection bar ── */
 .sel-bar {

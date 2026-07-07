@@ -8,9 +8,15 @@ let selectedStudents = new Set(); // set of student_no selected for bulk edit
 let sortKey = null;               // null | 'name' | 'grade' — row sort column
 let sortDir = 1;                  // 1 = ascending, -1 = descending
 
-/* Per-student final status overrides */
+/* Per-student final status overrides. INC/DRP/W are built in; anything else is
+   a teacher's custom label (shown as-is, styled with the neutral st-custom). */
 const STATUS_FULL = { INC: 'Incomplete', DRP: 'Dropped', W: 'Withdrawn' };
-const stBadge = st => `<span class="st-badge st-${st.toLowerCase()}">${st}</span>`;
+const BUILTIN_STATUS = ['INC', 'DRP', 'W'];
+const isCustomStatus = st => !!st && !BUILTIN_STATUS.includes(st);
+const stBadge = st => {
+    const cls = isCustomStatus(st) ? 'st-custom' : `st-${String(st).toLowerCase()}`;
+    return `<span class="st-badge ${cls}" title="${escAttr(st)}">${escHtml(st)}</span>`;
+};
 let ALL_SECTIONS = [];        // cached section list (for the Copy-from picker)
 let PINNED = new Set();       // this teacher's chosen sections (subset shown in the picker)
 let SECTION_VIEW = 'pinned';  // 'pinned' = show only PINNED, 'all' = show everything
@@ -291,6 +297,9 @@ function renderSectionOptions() {
 
     if (!list.length) {
         sel.innerHTML = `<option value="">No pinned sections — tap ⚙ to add</option>`;
+        MSEL_LIST = [];
+        renderMselList();
+        syncMselLabel();
         return;
     }
     sel.innerHTML = `<option value="">— Select section —</option>` +
@@ -301,6 +310,75 @@ function renderSectionOptions() {
 
     /* restore the previous selection if it's still in the filtered list */
     if (current && list.some(s => s.section === current)) sel.value = current;
+
+    /* mirror into the custom (modern) dropdown */
+    MSEL_LIST = list;
+    renderMselList();
+    syncMselLabel();
+}
+
+/* ── Modern section dropdown (custom skin over the native <select>) ── */
+let MSEL_LIST = [];   // sections currently shown in the custom panel
+function renderMselList() {
+    const box = $('mselList');
+    if (!box) return;
+    const cur = $('selSection').value;
+    const q = ($('mselSearch') ? $('mselSearch').value : '').trim().toLowerCase();
+    if (!MSEL_LIST.length) {
+        box.innerHTML = `<div class="msel-empty">No pinned sections — tap ⚙ to add</div>`;
+        return;
+    }
+    const filtered = MSEL_LIST.filter(s => {
+        const label = ((s.course ? s.course + ' · ' : '') + s.section).toLowerCase();
+        return !q || label.includes(q);
+    });
+    if (!filtered.length) {
+        box.innerHTML = `<div class="msel-empty">No section matches “${escHtml(q)}”.</div>`;
+        return;
+    }
+    box.innerHTML = filtered.map(s => {
+        const label = (s.course ? s.course + ' · ' : '') + s.section;
+        const on = s.section === cur;
+        return `<button type="button" class="msel-opt ${on ? 'on' : ''}" role="option" data-sec="${escAttr(s.section)}">
+            <span class="msel-opt-name">${escHtml(label)}</span>
+            <span class="msel-opt-count">${s.count}</span>
+            ${on ? '<i class="bi bi-check2 msel-opt-check"></i>' : ''}
+        </button>`;
+    }).join('');
+    box.querySelectorAll('.msel-opt').forEach(b => {
+        b.addEventListener('click', () => {
+            const sel = $('selSection');
+            sel.value = b.dataset.sec;
+            sel.dispatchEvent(new Event('change'));   // reuse existing change → loadSheet
+            syncMselLabel();
+            closeMsel();
+        });
+    });
+}
+function syncMselLabel() {
+    const sel = $('selSection');
+    const lbl = $('mselLabel');
+    if (!sel || !lbl) return;
+    const opt = sel.options[sel.selectedIndex];
+    lbl.textContent = (sel.value && opt) ? opt.textContent : '— Select section —';
+    lbl.classList.toggle('is-placeholder', !sel.value);
+    const box = $('mselList');
+    if (box) box.querySelectorAll('.msel-opt').forEach(b => b.classList.toggle('on', b.dataset.sec === sel.value));
+}
+function openMsel() {
+    const p = $('mselPanel'); if (!p) return;
+    p.classList.add('show');
+    $('mselBtn').setAttribute('aria-expanded', 'true');
+    const s = $('mselSearch');
+    if (s) { s.value = ''; renderMselList(); setTimeout(() => s.focus(), 30); }
+}
+function closeMsel() {
+    const p = $('mselPanel'); if (!p) return;
+    p.classList.remove('show');
+    $('mselBtn').setAttribute('aria-expanded', 'false');
+}
+function toggleMsel() {
+    $('mselPanel') && $('mselPanel').classList.contains('show') ? closeMsel() : openMsel();
 }
 
 /* ── Toggle between "My sections" and "All sections" ─────── */
@@ -2289,6 +2367,13 @@ function openBreakdown(sno) {
     $('bdBody').querySelectorAll('.bd-st-btn').forEach(btn => {
         btn.addEventListener('click', () => setStudentStatus(s.student_no, btn.dataset.status));
     });
+    /* custom final-status label → applies on Set / Enter */
+    const cin = $('bdCustomStatus'), cset = $('bdCustomSet');
+    if (cin && cset) {
+        const applyCustom = () => { const v = cin.value.trim(); if (v) setStudentStatus(s.student_no, v); };
+        cset.addEventListener('click', applyCustom);
+        cin.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyCustom(); } });
+    }
     $('breakdownModal').classList.add('show');
 }
 function closeBreakdown() { $('breakdownModal').classList.remove('show'); }
@@ -2403,11 +2488,17 @@ async function exportStudentPDF() {
 function buildStatusPicker(s) {
     const cur = (SHEET.statuses || {})[s.student_no] || '';
     const opts = [['', 'Auto'], ['INC', 'INC'], ['DRP', 'DRP'], ['W', 'W']];
+    const custom = isCustomStatus(cur);
     const btns = opts.map(([v, lbl]) =>
         `<button type="button" class="bd-st-btn ${cur === v ? 'active' : ''}" data-status="${v}">${lbl}</button>`).join('');
     return `<div class="bd-status">
         <div class="bd-status-lbl">Final status <span class="bd-note">overrides the computed remark</span></div>
         <div class="bd-status-btns">${btns}</div>
+        <div class="bd-status-custom">
+            <input type="text" id="bdCustomStatus" class="bd-custom-input ${custom ? 'active' : ''}" maxlength="24"
+                placeholder="Custom label (e.g. OJT, Transferred)" value="${custom ? escAttr(cur) : ''}">
+            <button type="button" class="bd-custom-set" id="bdCustomSet">Set</button>
+        </div>
     </div>`;
 }
 
@@ -2415,11 +2506,14 @@ async function setStudentStatus(sno, status) {
     if (!SHEET) return;
     const d = await apiPost({ api: 'set_student_status', section: SHEET.section, student_no: sno, status });
     if (!d.success) { showToastSafe(d.message || 'Could not save status.', 'error'); return; }
+    /* trust the server's normalised value (e.g. "inc" → "INC", custom capped) */
+    const saved = (typeof d.status === 'string') ? d.status : status;
     if (!SHEET.statuses) SHEET.statuses = {};
-    if (status) SHEET.statuses[sno] = status; else delete SHEET.statuses[sno];
+    if (saved) SHEET.statuses[sno] = saved; else delete SHEET.statuses[sno];
     render();
     openBreakdown(sno);   // refresh active state
-    showToastSafe(status ? `Marked as ${status} (${STATUS_FULL[status]}).` : 'Status cleared — back to computed grade.', 'success');
+    const full = STATUS_FULL[saved];
+    showToastSafe(saved ? `Marked as ${saved}${full ? ' (' + full + ')' : ''}.` : 'Status cleared — back to computed grade.', 'success');
 }
 
 /* Remark row for the breakdown modal. A final-status override (INC/DRP/W)
@@ -2429,9 +2523,11 @@ async function setStudentStatus(sno, status) {
 function bdRemark(s, isPass) {
     const st = (SHEET.statuses || {})[s.student_no] || '';
     if (st) {
+        /* built-in shows "INC — Incomplete"; custom shows the label as-is */
+        const label = STATUS_FULL[st] ? `${escHtml(st)} — ${escHtml(STATUS_FULL[st])}` : escHtml(st);
         return {
             cls: 'bd-override',
-            row: `<div class="bd-final-row"><span>Remark</span><span class="bd-remark bd-r-status">${st} — ${escHtml(STATUS_FULL[st] || st)}</span></div>`,
+            row: `<div class="bd-final-row"><span>Remark</span><span class="bd-remark bd-r-status">${label}</span></div>`,
         };
     }
     return {
@@ -2554,6 +2650,19 @@ if (typeof escHtml !== 'function') {
 
 /* ── wire up ────────────────────────────────────────────── */
 $('selSection').addEventListener('change', e => loadSheet(e.target.value));
+/* modern section dropdown: open/close, live search, outside-click + Esc */
+(function () {
+    const btn = $('mselBtn'), search = $('mselSearch'), wrap = $('mselSection');
+    if (!btn || !wrap) return;
+    btn.addEventListener('click', e => { e.stopPropagation(); toggleMsel(); });
+    if (search) {
+        search.addEventListener('input', renderMselList);
+        search.addEventListener('click', e => e.stopPropagation());
+        search.addEventListener('keydown', e => { if (e.key === 'Escape') { closeMsel(); btn.focus(); } });
+    }
+    document.addEventListener('click', e => { if (!wrap.contains(e.target)) closeMsel(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMsel(); });
+})();
 $('txtSearch').addEventListener('input', render);
 $('numPass').addEventListener('input', render);
 $('chkMissingZero').addEventListener('change', render);

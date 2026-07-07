@@ -153,6 +153,14 @@ $conn->query("CREATE TABLE IF NOT EXISTS grade_student_status (
     UNIQUE KEY uniq_owner_sec_student (owner_id, section, student_no)
 )");
 
+/* Migration: widen `status` so it can hold a teacher's CUSTOM final-status
+   label (e.g. "OJT", "Transferred"), not just INC/DRP/W. Was VARCHAR(8). */
+$__ssLen = $conn->query("SELECT CHARACTER_MAXIMUM_LENGTH len FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='grade_student_status' AND COLUMN_NAME='status'");
+if ($__ssLen && ($__x = $__ssLen->fetch_assoc()) && (int)$__x['len'] < 24) {
+    $conn->query("ALTER TABLE grade_student_status MODIFY status VARCHAR(24) NOT NULL");
+}
+
 /* Default PH college scale (min raw score -> equivalent point). Seeded once,
    per teacher, the first time their bands are read while the table is empty. */
 $DEFAULT_EQUIV = [
@@ -1111,16 +1119,17 @@ if (isset($_GET['api']) || isset($_POST['api'])) {
             case 'set_student_status':
                 $section = trim($_POST['section'] ?? '');
                 $sno     = trim($_POST['student_no'] ?? '');
-                $status  = strtoupper(trim($_POST['status'] ?? ''));
+                $raw     = trim($_POST['status'] ?? '');
                 if ($section === '' || $sno === '') {
                     echo json_encode(['success' => false, 'message' => 'Missing section or student.']);
                     break;
                 }
-                $allowed = ['INC', 'DRP', 'W'];
-                if ($status !== '' && !in_array($status, $allowed, true)) {
-                    echo json_encode(['success' => false, 'message' => 'Invalid status.']);
-                    break;
-                }
+                /* INC/DRP/W stay normalised to uppercase; anything else is a
+                   custom label kept as-typed (capped to fit the column). */
+                $builtin = ['INC', 'DRP', 'W'];
+                $status  = in_array(strtoupper($raw), $builtin, true)
+                    ? strtoupper($raw)
+                    : mb_substr($raw, 0, 24);
                 if ($status === '') {
                     $st = $conn->prepare("DELETE FROM grade_student_status WHERE owner_id = ? AND section = ? AND student_no = ?");
                     $st->bind_param('iss', $admin_id, $section, $sno);
@@ -1513,13 +1522,27 @@ if (isset($_GET['api']) || isset($_POST['api'])) {
                         <button type="button" id="btnManageSections" class="pin-gear" title="Choose which sections to show"><i class="bi bi-gear"></i></button>
                     </span>
                 </label>
-                <select id="selSection">
-                    <option value="">Loading sections…</option>
-                </select>
+                <div class="msel" id="mselSection">
+                    <!-- native select kept as the source of truth (hidden), driven by the custom UI -->
+                    <select id="selSection" class="msel-native" aria-hidden="true" tabindex="-1">
+                        <option value="">Loading sections…</option>
+                    </select>
+                    <button type="button" class="msel-btn" id="mselBtn" aria-haspopup="listbox" aria-expanded="false">
+                        <span class="msel-btn-label" id="mselLabel">Loading sections…</span>
+                        <i class="bi bi-chevron-down msel-chev"></i>
+                    </button>
+                    <div class="msel-panel" id="mselPanel" role="listbox">
+                        <div class="msel-search-wrap">
+                            <i class="bi bi-search msel-search-ic"></i>
+                            <input type="text" id="mselSearch" class="msel-search" placeholder="Search section or course…">
+                        </div>
+                        <div class="msel-list" id="mselList"></div>
+                    </div>
+                </div>
             </div>
             <div class="gs-field">
                 <label for="txtSearch">Search student</label>
-                <input type="text" id="txtSearch" placeholder="Name or student no.">
+                <input type="text" id="txtSearch" placeholder="Search anything…" title="Search by name, student number, status (INC/DRP/W or a custom label), or passed/failed">
             </div>
             <div class="gs-field">
                 <label for="numPass">Passing %</label>
