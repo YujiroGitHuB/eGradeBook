@@ -23,7 +23,7 @@ edits to CSS/JS take effect on reload with no build.
 eGradeBook owns only its **grading** tables but reads live data from two sibling
 apps' databases **on the same MySQL server** using cross-DB SQL (`` `db`.`table` ``):
 
-- `egradebook_db` — this app's own tables (`grade_activities`, `grade_activity_scores`, `grade_categories`, `grade_settings`, `grade_transmute`, `grade_student_status`, `grade_pinned_sections`, `grade_form_meta`).
+- `egradebook_db` — this app's own tables (`grade_activities`, `grade_activity_scores`, `grade_categories`, `grade_settings`, `grade_transmute`, `grade_student_status`, `grade_pinned_sections`, `grade_form_meta`, `grade_attendance_meta`).
 - `formflow_db` (`FORMFLOW_DB`) — **login accounts** (`admin_users`), plus `forms`, `form_questions`, `form_responses` that become auto-graded "form" columns.
 
 `grade_form_meta` is an **overlay** on FormFlow form columns: the form's title,
@@ -31,12 +31,26 @@ points, and responses stay read-only in FormFlow, but this table lets a teacher
 attach eGradeBook-side grading metadata (`term`, `category_id`, `weight`,
 `sort_order`) so a form column can join term-mode/weighted grading and be
 drag-reordered alongside manual activities. Keyed `(owner_id, section, form_id)`.
-Column ordering is now **unified** across activities + forms (both carry
-`sort_order`; the `reorder_columns` API and the `sheet` action's `uasort` keep
-them on one scale). Grade math includes forms: `termGrade` and the weighted
-branch of `courseworkGrade` in `grades.js` filter on
-`type === 'activity' || type === 'form'`.
-- `bcc_qr_attendance_db` (`ATTENDANCE_DB`, table `students_tbl`) — the **student roster** (sections, names, courses).
+Column ordering is now **unified** across activities + forms + the attendance
+column (all carry `sort_order`; the `reorder_columns` API and the `sheet`
+action's `uasort` keep them on one scale — `reorder_columns` special-cases the
+`att` key before its numeric-id parse). Grade math includes forms **and
+attendance**: `termGrade` and the weighted branch of `courseworkGrade` in
+`grades.js` filter on `type === 'activity' || type === 'form' || type === 'attendance'`.
+
+`grade_attendance_meta` is another **overlay**, this time on an auto column
+computed from the QR attendance scans: one optional "Attendance" column per
+section (key `att`, type `attendance`, `id 0`). When
+`grade_attendance_meta.enabled = 1`, the `sheet` action reads
+`bcc_qr_attendance_db.attendance_tbl` — present = the student has a scan on a
+session `date`, and the column `max` is the count of distinct session dates for
+the section (section-scoped like the roster; a section running multiple subjects
+pools their dates). The score is read-only; the table stores only the eGradeBook
+overlay (`enabled`, `term`, `category_id`, `weight`, `sort_order`), so the column
+joins weighted/term grading exactly like a form column. Keyed `(owner_id,
+section)`. Toggled by the `Attendance` checkbox → `set_attendance_enabled`;
+overlay edited via `set_attendance_meta`.
+- `bcc_qr_attendance_db` (`ATTENDANCE_DB`) — the **student roster** (`students_tbl`: sections, names, courses) and the **attendance scans** (`attendance_tbl`, read only when the attendance column is enabled).
 
 All three constants live in `inc/db.php`. This design breaks if the databases
 move to separate physical servers — the joins would need a REST/replication
@@ -67,12 +81,14 @@ sync with FormFlow automatically.
    `edit_activity` / `delete_activity`, `save_activity_score`, `bulk_fill_activity`,
    `import_activity_scores`, `set_linked_activity`, `reorder_activities`,
    `save_category` / `delete_category`, `get_transmute` / `save_transmute`,
-   `set_student_status` / `set_students_status`, `copy_activities`, and the
+   `set_student_status` / `set_students_status`, `copy_activities`,
+   `set_attendance_enabled` / `set_attendance_meta`, and the
    `set_use_defense` / `set_term_mode` toggles.
 
 The `sheet` action is the core read: it assembles `students` (roster), unified
-`columns` (form columns from FormFlow + manual activity columns), and a
-`scores[student_no][key]` map, which the frontend renders.
+`columns` (form columns from FormFlow + manual activity columns + the optional
+auto attendance column), and a `scores[student_no][key]` map, which the frontend
+renders.
 
 After the API `switch`, the rest of the file is the HTML page. Shared UI pieces
 are in `components/` (`favico`, `footer`, `logoutModal`, `supportModal`).
@@ -85,7 +101,8 @@ object, and computes grades client-side. Grading logic to preserve when editing:
 
 - **Coursework grade:** if activities carry weights → weighted average
   `Σ(score/max × weight) ÷ Σweight × 100`; otherwise legacy points-based
-  `Σscore ÷ Σmax × 100` (includes form columns).
+  `Σscore ÷ Σmax × 100` (includes form columns and the attendance column when
+  enabled — attendance's `score` is present-count, `max` is total sessions).
 - **Transmutation:** raw 0–100 → 1.00–5.00 point via editable bands
   (`TRANSMUTE`, seeded from the PH college default scale). This is the single
   source of truth for both flat and term grades; keep the PHP `$DEFAULT_EQUIV`

@@ -71,8 +71,9 @@ function courseworkGrade(s, missingZero) {
     const sel   = SHEET.columns.filter(c => selectedCols.has(c.key));
     const acts  = sel.filter(c => c.type === 'activity');
     const forms = sel.filter(c => c.type === 'form');
-    /* both activities AND form columns can carry a weight now */
-    const weighables = [...acts, ...forms];
+    const atts  = sel.filter(c => c.type === 'attendance');
+    /* activities, form columns AND the auto attendance column can all carry a weight */
+    const weighables = [...acts, ...forms, ...atts];
     const totalW = weighables.reduce((t, c) => t + (Number(c.weight) || 0), 0);
 
     let got = 0, max = 0, gotAny = false;
@@ -128,8 +129,8 @@ function termGrade(s, term) {
     if (!cats.length) return null;
     let totalW = 0, acc = 0, anyScore = false;
     cats.forEach(cat => {
-        /* activities AND form columns assigned to this term + category */
-        const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form') && c.term === term && c.category_id === cat.id);
+        /* activities, form columns AND the attendance column assigned to this term + category */
+        const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form' || c.type === 'attendance') && c.term === term && c.category_id === cat.id);
         let raw = 0, mx = 0;
         acts.forEach(a => {
             const rec = getRec(s.student_no, a.key);
@@ -481,6 +482,9 @@ async function loadSheet(section) {
     $('chkTermMode').checked = d.term_mode === true;
     $('btnGradeSetup').style.display = d.term_mode === true ? '' : 'none';
 
+    /* auto attendance column toggle */
+    if ($('chkAttendance')) $('chkAttendance').checked = d.attendance_enabled === true;
+
     render();
 }
 
@@ -494,11 +498,14 @@ function renderColumnPicker() {
     $('gsColumns').style.display = 'block';
     box.innerHTML = SHEET.columns.map(c => {
         const on = selectedCols.has(c.key);
-        const icon = c.type === 'activity' ? '<i class="bi bi-pencil-square" style="color:var(--accent2)"></i> '
-                   : c.type === 'defense'  ? '<i class="bi bi-shield-check" style="color:var(--accent)"></i> '
+        const icon = c.type === 'activity'   ? '<i class="bi bi-pencil-square" style="color:var(--accent2)"></i> '
+                   : c.type === 'defense'    ? '<i class="bi bi-shield-check" style="color:var(--accent)"></i> '
+                   : c.type === 'attendance' ? '<i class="bi bi-calendar-check" style="color:var(--accent)"></i> '
                    : '';
         const meta = c.type === 'defense'
                    ? `${c.responded}/${SHEET.students.length} · live`
+                   : c.type === 'attendance'
+                   ? `${c.responded}/${SHEET.students.length} present · ${c.max || 0} sessions`
                    : `${c.responded}/${SHEET.students.length} · ${c.max || '?'} pts`;
         return `<label class="gs-tag ${on ? 'on' : ''}" data-key="${c.key}">
                         <input type="checkbox" ${on ? 'checked' : ''}>
@@ -594,7 +601,7 @@ function render() {
 
     const hasCols = cols.length > 0;
     const hasDefense = false;   // no live defense — activity/import is the only channel
-    const hasCourse  = SHEET.columns.some(c => c.type === 'activity' || c.type === 'form');
+    const hasCourse  = SHEET.columns.some(c => c.type === 'activity' || c.type === 'form' || c.type === 'attendance');
     const hasFinal   = hasCourse || hasDefense;   // final gumagana may defense man o wala
 
     let head = `<tr><th class="col-sel"><input type="checkbox" id="selAllRows" title="Select all"></th><th class="col-no">#</th><th class="col-name sortable" data-sort="name" title="Sort by name" style="text-align:left;">Student${sortArrow('name')}</th>`;
@@ -681,6 +688,45 @@ function render() {
                             <span class="act-drag" draggable="true" data-colkey="${c.key}" data-tip="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
                             <span class="frm-title" data-tip="From FormFlow — rename it there"><i class="bi bi-ui-checks-grid frm-ic"></i>${escHtml(c.title)}</span></span>
                             ${fsub}<span class="act-print">${escHtml(c.title)}${_fprintSub}</span></th>`;
+        } else if (c.type === 'attendance') {
+            /* Attendance column — AUTO from the QR scans. Score (present ÷
+               sessions) is READ-ONLY; only the eGradeBook overlay (term,
+               category, weight, order) is editable so it can join term /
+               weighted grading, like a form column. */
+            let asub;
+            if (termMode) {
+                const cats = (SHEET.categories || []).filter(k => k.term === c.term);
+                const catOpts = `<option value="">cat?</option>` + cats.map(k =>
+                    `<option value="${k.id}" ${k.id === c.category_id ? 'selected' : ''}>${escHtml(k.name)}</option>`).join('');
+                asub = `<span class="sub sub-term">
+                        <span class="tc-row">
+                            <select class="att-term-edit" data-key="${c.key}" data-tip="Term (Midterm / Final)">
+                                <option value="" ${!c.term ? 'selected' : ''}>term?</option>
+                                <option value="midterm" ${c.term === 'midterm' ? 'selected' : ''}>Midterm</option>
+                                <option value="final" ${c.term === 'final' ? 'selected' : ''}>Final</option>
+                            </select>
+                            <select class="att-cat-edit" data-key="${c.key}" data-tip="Category">${catOpts}</select>
+                        </span>
+                        <span class="mx">max <b>${c.max || 0}</b> <span class="frm-ro" data-tip="Auto from QR attendance scans">sessions</span></span>
+                    </span>`;
+            } else {
+                asub = `<span class="sub">/ <b>${c.max || 0}</b> ·
+                            <input type="number" class="att-wt-edit" min="0" step="1" value="${(+c.weight || 0)}"
+                                data-key="${c.key}" data-tip="Weight % (Excel-style; 0 = no weight)">% wt</span>`;
+            }
+            let _acatName = '';
+            if (termMode) {
+                const _akc = (SHEET.categories || []).find(k => k.id === c.category_id && k.term === c.term);
+                _acatName = _akc ? _akc.name : '';
+            }
+            const _aprintBits = termMode
+                ? [c.term ? (c.term === 'midterm' ? 'Midterm' : 'Final') : '', _acatName, `${c.max || 0} sessions`].filter(Boolean)
+                : [`${c.max || 0} sessions`, (+c.weight > 0 ? `${+c.weight}% wt` : '')].filter(Boolean);
+            const _aprintSub = `<span class="act-print-sub">${_aprintBits.map(escHtml).join(' · ')}</span>`;
+            head += `<th class="act-col frm-col att-col" data-colkey="${c.key}"><span class="act-head">
+                            <span class="act-drag" draggable="true" data-colkey="${c.key}" data-tip="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
+                            <span class="frm-title" data-tip="Auto from QR attendance — present ÷ sessions"><i class="bi bi-calendar-check frm-ic"></i>${escHtml(c.title)}</span></span>
+                            ${asub}<span class="act-print">${escHtml(c.title)}${_aprintSub}</span></th>`;
         } else {
             head += `<th>${escHtml(c.title)}<span class="sub">/ ${c.max || '?'}</span></th>`;
         }
@@ -740,6 +786,16 @@ function render() {
                     cells += `<td class="dfn-cell ${ok ? 'cell-pass' : 'cell-fail'}" title="From defense panel (live · ${srcLbl} grade)">${disp}${badge}</td>`;
                 } else {
                     cells += `<td class="dfn-cell cell-miss">—</td>`;
+                }
+            } else if (c.type === 'attendance') {
+                /* read-only present/total, computed from the QR scans */
+                if (rec && rec.max > 0) {
+                    const p = Number(rec.score) || 0;
+                    const pctA = rec.max > 0 ? (p / rec.max * 100) : 0;
+                    const okA = pctA >= pass;
+                    cells += `<td class="${okA ? 'cell-pass' : 'cell-fail'}" title="Present ${p} of ${rec.max} session${rec.max === 1 ? '' : 's'} (${pctA.toFixed(0)}%)">${p}<span style="color:var(--muted);font-weight:400;">/${rec.max}</span></td>`;
+                } else {
+                    cells += `<td class="cell-miss" title="No attendance sessions recorded yet">—</td>`;
                 }
             } else if (rec) {
                 const cellPass = cmax > 0 ? (rec.score / cmax * 100) >= pass : true;
@@ -848,7 +904,7 @@ function render() {
 
     /* coursework weight-total indicator (when there are weights) —
        activities AND form columns can both carry weight */
-    const weightCols = SHEET.columns.filter(c => c.type === 'activity' || c.type === 'form');
+    const weightCols = SHEET.columns.filter(c => c.type === 'activity' || c.type === 'form' || c.type === 'attendance');
     const totalWeight = weightCols.reduce((t, c) => t + (+c.weight || 0), 0);
     const formWeight  = weightCols.filter(c => c.type === 'form').reduce((t, c) => t + (+c.weight || 0), 0);
     let wtNote = '';
@@ -1033,6 +1089,13 @@ function render() {
             if (e.key === 'Enter') inp.blur();
         });
     });
+    /* wire editable attendance overlay (term / category / weight) */
+    $('gsArea').querySelectorAll('input.att-wt-edit, select.att-term-edit, select.att-cat-edit').forEach(inp => {
+        inp.addEventListener('change', onAttendanceEdit);
+        inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') inp.blur();
+        });
+    });
 
     $('gsStats').style.display = 'flex';
     $('stStudents').textContent = SHEET.students.length;
@@ -1149,7 +1212,8 @@ function reorderColumns(dragKey, targetKey) {
     if (dragKey === targetKey) return;
     /* Only reorderable column types take part; other types (if any) keep
        their slots. We reorder the movable subset and stitch it back. */
-    const movable = SHEET.columns.filter(c => c.type === 'activity' || c.type === 'form');
+    const isMovable = c => c.type === 'activity' || c.type === 'form' || c.type === 'attendance';
+    const movable = SHEET.columns.filter(isMovable);
     const from = movable.findIndex(c => c.key === dragKey);
     const to   = movable.findIndex(c => c.key === targetKey);
     if (from < 0 || to < 0 || from === to) return;
@@ -1159,8 +1223,7 @@ function reorderColumns(dragKey, targetKey) {
 
     /* map back into SHEET.columns, preserving positions of non-movable columns */
     let mi = 0;
-    SHEET.columns = SHEET.columns.map(c =>
-        (c.type === 'activity' || c.type === 'form') ? movable[mi++] : c);
+    SHEET.columns = SHEET.columns.map(c => isMovable(c) ? movable[mi++] : c);
     render();
 
     apiPost({ api: 'reorder_columns', section: SHEET.section, order: JSON.stringify(movable.map(c => c.key)) })
@@ -1183,6 +1246,41 @@ async function onFormEdit(e) {
     const isWeight = inp.classList.contains('frm-wt-edit');
 
     const payload = { api: 'set_form_meta', section: SHEET.section, form_id: fid };
+    if (isTerm) {
+        payload.term = inp.value;
+        payload.category_id = '';           // clear category when term changes
+        col.term = inp.value;
+        col.category_id = null;
+    } else if (isCat) {
+        payload.category_id = inp.value === '' ? '' : parseInt(inp.value);
+        col.category_id = inp.value === '' ? null : parseInt(inp.value);
+    } else if (isWeight) {
+        const w = Math.max(0, parseFloat(inp.value) || 0);
+        inp.value = w;
+        if (w === (+col.weight || 0)) return;
+        payload.weight = w;
+        col.weight = w;
+    } else {
+        return;
+    }
+
+    const d = await apiPost(payload);
+    if (!d.success) { showToastSafe(d.message || 'Update failed', 'error'); return; }
+    render();
+}
+
+/* ── Save the attendance-column overlay (term / category / weight) ──
+   Mirrors onFormEdit, but keyed per section (one attendance column). */
+async function onAttendanceEdit(e) {
+    const inp = e.target;
+    const col = SHEET.columns.find(c => c.key === 'att');
+    if (!col) return;
+
+    const isTerm   = inp.classList.contains('att-term-edit');
+    const isCat    = inp.classList.contains('att-cat-edit');
+    const isWeight = inp.classList.contains('att-wt-edit');
+
+    const payload = { api: 'set_attendance_meta', section: SHEET.section };
     if (isTerm) {
         payload.term = inp.value;
         payload.category_id = '';           // clear category when term changes
@@ -1981,7 +2079,7 @@ async function exportBackup() {
             continue;
         }
 
-        const acts = (d.columns || []).filter(c => c.type === 'activity' || c.type === 'form');
+        const acts = (d.columns || []).filter(c => c.type === 'activity' || c.type === 'form' || c.type === 'attendance');
         const students = d.students || [];
         const scores = d.scores || {};
         const st = d.statuses || {};
@@ -2097,7 +2195,7 @@ async function buildSectionsPDF(sections, fileBase) {
 
             /* the individual assessment columns (activities + forms) shown on the
                sheet — so the PDF has the full breakdown, not just final grades */
-            const assessCols = (d.columns || []).filter(c => (c.type === 'activity' || c.type === 'form') && selectedCols.has(c.key));
+            const assessCols = (d.columns || []).filter(c => (c.type === 'activity' || c.type === 'form' || c.type === 'attendance') && selectedCols.has(c.key));
             const assessHeads = assessCols.map(c => `${c.title}\n/${c.max || 0}`);
 
             const tailHeads = termMode
@@ -2215,7 +2313,7 @@ function exportCSV() {
         ...courseCols.map(c => `${c.title} (/${c.max || '?'})`),
         'Total', 'Max', 'Percentage', 'Remark'];
     if (hasDefense) head.push('Defense (avg /100)', 'Defense (1.00-5.00)', 'Defense Source', 'Defense Remark');
-    const hasCourse = SHEET.columns.some(c => c.type === 'activity' || c.type === 'form');
+    const hasCourse = SHEET.columns.some(c => c.type === 'activity' || c.type === 'form' || c.type === 'attendance');
     const hasFinal  = hasCourse || hasDefense;
     if (hasFinal) {
         const finLbl = hasDefense ? 'Final Average' : 'Final (coursework)';
@@ -2427,7 +2525,7 @@ async function exportStudentPDF() {
             put(tLabel, left, { bold: true, size: 12 });
             put(tg ? tg.grade.toFixed(1) : '—', right, { bold: true, size: 12, color: [37, 99, 235], align: 'right' }); nl(18);
             cats.forEach(cat => {
-                const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form') && c.term === tKey && c.category_id === cat.id);
+                const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form' || c.type === 'attendance') && c.term === tKey && c.category_id === cat.id);
                 let raw = 0, mx = 0;
                 acts.forEach(a => { const rec = getRec(s.student_no, a.key); mx += a.max || 0; if (rec) raw += Number(rec.score) || 0; });
                 const catPct = mx > 0 ? raw / mx * 100 : 0;
@@ -2460,7 +2558,7 @@ async function exportStudentPDF() {
         const missingZero = $('chkMissingZero') ? $('chkMissingZero').checked : false;
         const pass = clampPct(parseFloat($('numPass').value) || 0);
         const cg = courseworkGrade(s, missingZero);
-        const cols = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form') && selectedCols.has(c.key));
+        const cols = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form' || c.type === 'attendance') && selectedCols.has(c.key));
         put('Coursework', left, { bold: true, size: 12 });
         put(cg.gotAny ? cg.pct.toFixed(1) + '%' : '—', right, { bold: true, size: 12, color: [37, 99, 235], align: 'right' }); nl(18);
         cols.forEach(c => {
@@ -2602,12 +2700,12 @@ function buildBreakdownFlat(s) {
     if (!cg.gotAny) return `<div class="bd-empty">No grades yet for this student.</div>`;
 
     const sel = SHEET.columns.filter(c => selectedCols.has(c.key));
-    const list = [...sel.filter(c => c.type === 'activity'), ...sel.filter(c => c.type === 'form')];
+    const list = [...sel.filter(c => c.type === 'activity'), ...sel.filter(c => c.type === 'form'), ...sel.filter(c => c.type === 'attendance')];
     let rows = '';
     list.forEach(c => {
         const rec = getRec(s.student_no, c.key);
         const cmax = c.max || (rec ? rec.max : 0) || 0;
-        const wt = (cg.weighted && (c.type === 'activity' || c.type === 'form') && Number(c.weight) > 0)
+        const wt = (cg.weighted && (c.type === 'activity' || c.type === 'form' || c.type === 'attendance') && Number(c.weight) > 0)
             ? ` <span class="bd-wt">${Number(c.weight)}%</span>` : '';
         rows += `<div class="bd-act"><span class="bd-act-name">${escHtml(c.title)}${wt}</span><span class="bd-act-score">${rec ? `${Number(rec.score)} <span class="bd-max">/ ${cmax}</span>` : `<span class="bd-blank">— / ${cmax}</span>`}</span></div>`;
     });
@@ -2673,6 +2771,23 @@ $('chkTermMode').addEventListener('change', async () => {
     await apiPost({ api: 'set_term_mode', section, value: on ? '1' : '0' });
     await loadSheet(section);   // reload to fetch the seeded categories
     if (on) showToastSafe('Term grading on. Open "Grade setup" to review Midterm/Final categories & weights.', 'success');
+});
+if ($('chkAttendance')) $('chkAttendance').addEventListener('change', async () => {
+    if (!SHEET) { $('chkAttendance').checked = false; showToastSafe('Select a section first.', 'error'); return; }
+    const on = $('chkAttendance').checked;
+    const section = SHEET.section;
+    const d = await apiPost({ api: 'set_attendance_enabled', section, value: on ? '1' : '0' });
+    if (!d.success) {
+        $('chkAttendance').checked = !on;   // revert on failure
+        showToastSafe(d.message || 'Could not update.', 'error');
+        return;
+    }
+    await loadSheet(section);   // reload to build/remove the attendance column
+    showToastSafe(
+        on ? 'Attendance column added (auto from QR scans). Set its weight or category in the header to include it in the grade.'
+           : 'Attendance column removed.',
+        on ? 'success' : 'info'
+    );
 });
 $('btnGradeSetup').addEventListener('click', openSetupModal);
 $('setupClose').addEventListener('click', closeSetupModal);

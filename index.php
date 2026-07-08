@@ -132,6 +132,25 @@ $conn->query("CREATE TABLE IF NOT EXISTS grade_form_meta (
     PRIMARY KEY (owner_id, section, form_id)
 )");
 
+/* Attendance overlay — one AUTO "Attendance" column per section, computed live
+   from the QR attendance scans (ATTENDANCE_DB.attendance_tbl). Present = the
+   student has ≥1 scan on a session date; % = present ÷ total session dates. The
+   score is READ-ONLY (owned by the attendance app, same bridge assumption as
+   the roster); this table stores ONLY the eGradeBook grading overlay — an
+   `enabled` toggle plus term/category/weight/order — so the attendance column
+   can join weighted / term-mode grading exactly like a FormFlow form column.
+   Keyed per teacher + section (kagaya ng scoping ng grade_form_meta). */
+$conn->query("CREATE TABLE IF NOT EXISTS grade_attendance_meta (
+    owner_id    INT NOT NULL,
+    section     VARCHAR(20) NOT NULL,
+    enabled     TINYINT(1) NOT NULL DEFAULT 0,
+    term        VARCHAR(10) NOT NULL DEFAULT '',
+    category_id INT DEFAULT NULL,
+    weight      DECIMAL(6,2) NOT NULL DEFAULT 0,
+    sort_order  INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (owner_id, section)
+)");
+
 /* Transmutation bands — GLOBAL per teacher (one table used by every section,
    both flat and term grading). Editable from the Transmutation modal. */
 $conn->query("CREATE TABLE IF NOT EXISTS grade_transmute (
@@ -465,6 +484,72 @@ if (isset($_GET['api']) || isset($_POST['api'])) {
                     $fmStmt->close();
                 }
 
+                /* ATTENDANCE COLUMN (auto) — computed from the QR attendance
+                   scans. Only built when the teacher enabled it for this section
+                   (grade_attendance_meta.enabled). Present = the student has a
+                   scan on a session date; the column's `max` is the number of
+                   distinct session dates. Read-only score; the overlay (term /
+                   category / weight / order) makes it behave like a form column.
+                   Section-scoped like the roster query — see the note below. */
+                $attEnabled = false;
+                $amS = $conn->prepare("SELECT enabled, term, category_id, weight, sort_order FROM grade_attendance_meta WHERE owner_id=? AND section=? LIMIT 1");
+                $amS->bind_param('is', $admin_id, $section);
+                $amS->execute();
+                $amRes  = $amS->get_result();
+                $attMeta = $amRes->fetch_assoc();
+                $amS->close();
+                if ($attMeta && (int)$attMeta['enabled'] === 1) {
+                    $attEnabled = true;
+                    /* NOTE (bridge assumption): sessions are counted per SECTION,
+                       same as the roster. A section that runs multiple subjects
+                       would pool their dates together — acceptable for v1; add a
+                       subject filter here if per-subject attendance is needed. */
+                    $totalSessions = 0;
+                    $sq = $conn->query("SELECT COUNT(DISTINCT `date`) c FROM " . ATTENDANCE_DB . ".attendance_tbl WHERE section='$section_esc'");
+                    if ($sq && ($sx = $sq->fetch_assoc())) $totalSessions = (int)$sx['c'];
+
+                    /* present (distinct dates) per rostered student */
+                    $present = [];
+                    if ($noList) {
+                        $pq = $conn->query(
+                            "SELECT student_no, COUNT(DISTINCT `date`) c FROM " . ATTENDANCE_DB . ".attendance_tbl
+                             WHERE section='$section_esc' AND student_no IN ($noList) GROUP BY student_no"
+                        );
+                        if ($pq) while ($pr = $pq->fetch_assoc()) $present[(string)$pr['student_no']] = (int)$pr['c'];
+                    }
+
+                    $columns['att'] = [
+                        'key'         => 'att',
+                        'type'        => 'attendance',
+                        'id'          => 0,
+                        'title'       => 'Attendance',
+                        'max'         => $totalSessions,
+                        'weight'      => (float)$attMeta['weight'],
+                        'term'        => $attMeta['term'],
+                        'category_id' => $attMeta['category_id'] !== null ? (int)$attMeta['category_id'] : null,
+                        'sort_order'  => (int)$attMeta['sort_order'],
+                        'responded'   => 0,
+                    ];
+                    /* every rostered student gets a value (absent = 0), so
+                       attendance counts as 0 — not "ungraded" — the whole point
+                       of an attendance grade. Skipped when there are no sessions
+                       yet so an empty attendance column can't zero everyone out. */
+                    if ($totalSessions > 0) {
+                        foreach ($students as $stu) {
+                            $sno = (string)$stu['student_no'];
+                            $p   = $present[$sno] ?? 0;
+                            $scores[$sno]['att'] = [
+                                'score'   => $p,
+                                'raw'     => $p,
+                                'penalty' => 0,
+                                'max'     => $totalSessions,
+                                'at'      => null,
+                            ];
+                            if ($p > 0) $columns['att']['responded']++;
+                        }
+                    }
+                }
+
                 /* Unified column order — sort forms + activities together by
                    sort_order. Stable tiebreak on the natural build order (forms
                    first, then activities) so untouched sheets look unchanged. */
@@ -559,6 +644,7 @@ if (isset($_GET['api']) || isset($_POST['api'])) {
                     'term_mode'   => $termMode,
                     'categories'  => $categories,
                     'statuses'    => $statuses,
+                    'attendance_enabled' => $attEnabled,
                 ]);
                 break;
 
@@ -974,6 +1060,66 @@ if (isset($_GET['api']) || isset($_POST['api'])) {
                 echo json_encode(['success' => true]);
                 break;
 
+            /* ── ENABLE / DISABLE the auto attendance column for a section ──
+               Toggles grade_attendance_meta.enabled. When ON, the `sheet` action
+               builds an "Attendance" column computed from the QR scans. */
+            case 'set_attendance_enabled':
+                $section = trim($_POST['section'] ?? '');
+                $en = (($_POST['value'] ?? '0') === '1' || ($_POST['value'] ?? '') === 'true') ? 1 : 0;
+                if ($section === '') {
+                    echo json_encode(['success' => false, 'message' => 'No section.']);
+                    break;
+                }
+                $stmt = $conn->prepare(
+                    "INSERT INTO grade_attendance_meta (owner_id, section, enabled) VALUES (?, ?, ?)
+                     ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)"
+                );
+                $stmt->bind_param('isi', $admin_id, $section, $en);
+                $stmt->execute();
+                $stmt->close();
+                echo json_encode(['success' => true, 'enabled' => (bool)$en]);
+                break;
+
+            /* ── SET ATTENDANCE META (term / category / weight for the auto column) ──
+               Same partial-update style as set_form_meta, but keyed per
+               (owner, section) since there is one attendance column per section. */
+            case 'set_attendance_meta':
+                $section = trim($_POST['section'] ?? '');
+                if ($section === '') {
+                    echo json_encode(['success' => false, 'message' => 'No section.']);
+                    break;
+                }
+                /* make sure a row exists (defaults), then patch only sent fields */
+                $ins = $conn->prepare("INSERT IGNORE INTO grade_attendance_meta (owner_id, section) VALUES (?, ?)");
+                $ins->bind_param('is', $admin_id, $section);
+                $ins->execute();
+                $ins->close();
+
+                if (array_key_exists('term', $_POST)) {
+                    $aTerm = in_array($_POST['term'], ['midterm', 'final', ''], true) ? $_POST['term'] : '';
+                    /* changing the term clears the category (options depend on term) */
+                    $u = $conn->prepare("UPDATE grade_attendance_meta SET term=?, category_id=NULL WHERE owner_id=? AND section=?");
+                    $u->bind_param('sis', $aTerm, $admin_id, $section);
+                    $u->execute();
+                    $u->close();
+                }
+                if (array_key_exists('category_id', $_POST)) {
+                    $aCat = ($_POST['category_id'] === '' ? null : intval($_POST['category_id']));
+                    $u = $conn->prepare("UPDATE grade_attendance_meta SET category_id=? WHERE owner_id=? AND section=?");
+                    $u->bind_param('iis', $aCat, $admin_id, $section);
+                    $u->execute();
+                    $u->close();
+                }
+                if (array_key_exists('weight', $_POST)) {
+                    $aWt = max(0, (float)$_POST['weight']);
+                    $u = $conn->prepare("UPDATE grade_attendance_meta SET weight=? WHERE owner_id=? AND section=?");
+                    $u->bind_param('dis', $aWt, $admin_id, $section);
+                    $u->execute();
+                    $u->close();
+                }
+                echo json_encode(['success' => true]);
+                break;
+
             /* ── REORDER COLUMNS (unified: activities + form columns) ──
                `order` is a JSON array of column keys ("a12","f7",…) in the new
                left-to-right order. Activities persist to grade_activities;
@@ -991,9 +1137,21 @@ if (isset($_GET['api']) || isset($_POST['api'])) {
                     "INSERT INTO grade_form_meta (owner_id, section, form_id, sort_order) VALUES (?, ?, ?, ?)
                      ON DUPLICATE KEY UPDATE sort_order = VALUES(sort_order)"
                 );
+                $uAtt = $conn->prepare(
+                    "INSERT INTO grade_attendance_meta (owner_id, section, sort_order) VALUES (?, ?, ?)
+                     ON DUPLICATE KEY UPDATE sort_order = VALUES(sort_order)"
+                );
                 $pos = 1;
                 foreach ($order as $ck) {
                     $ck = (string)$ck;
+                    /* attendance column ("att") — the single auto column, checked
+                       first because its key starts with 'a' but has no numeric id */
+                    if ($ck === 'att') {
+                        $uAtt->bind_param('isi', $admin_id, $section, $pos);
+                        $uAtt->execute();
+                        $pos++;
+                        continue;
+                    }
                     $id = intval(substr($ck, 1));
                     if ($id <= 0) { $pos++; continue; }
                     if ($ck[0] === 'a') {
@@ -1007,6 +1165,7 @@ if (isset($_GET['api']) || isset($_POST['api'])) {
                 }
                 $uAct->close();
                 $uFrm->close();
+                $uAtt->close();
                 echo json_encode(['success' => true]);
                 break;
 
@@ -1557,6 +1716,10 @@ if (isset($_GET['api']) || isset($_POST['api'])) {
                 <label class="gs-check" title="Excel-style: Midterm + Final terms with weighted categories, averaged">
                     <input type="checkbox" id="chkTermMode">
                     Term grading
+                </label>
+                <label class="gs-check" title="Add an auto Attendance column from the QR scans (present ÷ sessions). Set its weight or category in the column header to include it in the grade.">
+                    <input type="checkbox" id="chkAttendance">
+                    Attendance
                 </label>
                 <button class="btn btn-ghost btn-sm" id="btnGradeSetup" style="display:none;"><i class="bi bi-sliders"></i> Grade setup</button>
             </div>

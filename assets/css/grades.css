@@ -553,7 +553,8 @@ input.act-max-edit:focus {
 
 /* weight (%) input — weighted (Excel-style) coursework */
 input.act-wt-edit,
-input.frm-wt-edit {
+input.frm-wt-edit,
+input.att-wt-edit {
     width: 38px;
     border: 1px solid transparent;
     background: transparent;
@@ -572,18 +573,22 @@ input.frm-wt-edit {
 input.act-wt-edit::-webkit-outer-spin-button,
 input.act-wt-edit::-webkit-inner-spin-button,
 input.frm-wt-edit::-webkit-outer-spin-button,
-input.frm-wt-edit::-webkit-inner-spin-button {
+input.frm-wt-edit::-webkit-inner-spin-button,
+input.att-wt-edit::-webkit-outer-spin-button,
+input.att-wt-edit::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
 }
 
 input.act-wt-edit:hover,
-input.frm-wt-edit:hover {
+input.frm-wt-edit:hover,
+input.att-wt-edit:hover {
     border-color: var(--border);
 }
 
 input.act-wt-edit:focus,
-input.frm-wt-edit:focus {
+input.frm-wt-edit:focus,
+input.att-wt-edit:focus {
     border-color: var(--accent2);
     background: var(--surface2);
     color: var(--text);
@@ -654,7 +659,9 @@ input.frm-wt-edit:focus {
 select.act-term-edit,
 select.act-cat-edit,
 select.frm-term-edit,
-select.frm-cat-edit {
+select.frm-cat-edit,
+select.att-term-edit,
+select.att-cat-edit {
     font-family: inherit;
     font-size: .64rem;
     font-weight: 500;
@@ -672,12 +679,15 @@ select.frm-cat-edit {
 select.act-term-edit:hover,
 select.act-cat-edit:hover,
 select.frm-term-edit:hover,
-select.frm-cat-edit:hover {
+select.frm-cat-edit:hover,
+select.att-term-edit:hover,
+select.att-cat-edit:hover {
     border-color: var(--accent);
 }
 
 select.act-cat-edit,
-select.frm-cat-edit {
+select.frm-cat-edit,
+select.att-cat-edit {
     color: var(--accent2);
     font-weight: 600;
 }
