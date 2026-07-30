@@ -1,46 +1,27 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) session_start();
 
+require_once __DIR__ . '/app/bootstrap.php';
+
+use App\Core\Auth;
+use App\Core\Database;
+use App\Controllers\AuthController;
+
+Auth::start();
 if (!empty($_SESSION['admin_id'])) {
   header('Location: index.php');
   exit;
 }
-require_once 'inc/db.php';
+
+$db = new Database();
 
 $error = '';
 $next  = $_GET['next'] ?? 'index.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  $username = trim($_POST['username'] ?? '');
-  $password = $_POST['password'] ?? '';
-
-  if ($username && $password) {
-    // ── BRIDGED LOGIN — same accounts as FormFlow ──────────────
-    // eGradeBook has no admin_users of its own; it queries
-    // FormFlow's admin_users table directly (same MySQL
-    // server, different database). If the password is changed in FormFlow,
-    // it reflects here immediately since there is a single source.
-    $stmt = $conn->prepare("SELECT id, username, password, full_name, role FROM " . FORMFLOW_DB . ".admin_users WHERE username = ?");
-    $stmt->bind_param('s', $username);
-    $stmt->execute();
-    $user = $stmt->get_result()->fetch_assoc();
-
-    if ($user && password_verify($password, $user['password'])) {
-      session_regenerate_id(true);
-      $_SESSION['admin_id']       = $user['id'];
-      $_SESSION['admin_username'] = $user['username'];
-      $_SESSION['admin_name']     = $user['full_name'] ?: $user['username'];
-      $_SESSION['admin_role']     = $user['role'] ?? 'admin';
-      $next = $_POST['next'] ?? 'index.php';
-      if (strpos($next, 'http') === 0) $next = 'index.php';
-      header('Location: ' . $next);
-      exit;
-    } else {
-      $error = 'Invalid username or password.';
-    }
-  } else {
-    $error = 'Please fill in all fields.';
-  }
+  // ── BRIDGED LOGIN — same accounts as FormFlow (see App\Controllers\AuthController).
+  //    eGradeBook has no admin_users of its own; a password changed in FormFlow
+  //    reflects here immediately since there is a single source of truth.
+  $error = (new AuthController($db))->handle();
 }
 ?>
 <!DOCTYPE html>

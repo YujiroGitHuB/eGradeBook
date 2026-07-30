@@ -18,19 +18,36 @@ request; connection defaults are `localhost` / `root` / no password (see
 Static assets are cache-busted at runtime via `filemtime()` query strings, so
 edits to CSS/JS take effect on reload with no build.
 
+**Only two entry points:** `index.php` (front controller — page + all `?api=`
+JSON) and `login.php`; `inc/logout.php` destroys the session. Every other PHP
+file is reached through those.
+
+**The only automated check available** is PHP's syntax linter — there is no test
+suite, no linter config, no CI. Run it over the tree after editing PHP:
+
+```bash
+find app inc components index.php login.php -name '*.php' -exec php -l {} \;   # all PHP
+php -l app/Models/SheetRepo.php                                                # one file
+```
+
+Everything else is verified by hand in the browser: load a section, check the
+grading matrix and the computed grades, and watch the JSON in DevTools' Network
+tab (each `?api=` action returns `{success: bool, ...}`).
+
 ## The cross-database bridge (most important architectural fact)
 
 eGradeBook owns only its **grading** tables but reads live data from two sibling
 apps' databases **on the same MySQL server** using cross-DB SQL (`` `db`.`table` ``):
 
-- `egradebook_db` — this app's own tables (`grade_activities`, `grade_activity_scores`, `grade_categories`, `grade_settings`, `grade_transmute`, `grade_student_status`, `grade_pinned_sections`, `grade_form_meta`, `grade_attendance_meta`).
+- `egradebook_db` — this app's own tables (`grade_activities`, `grade_activity_scores`, `grade_categories`, `grade_settings`, `grade_transmute`, `grade_student_status`, `grade_pinned_sections`, `grade_form_meta`, `grade_attendance_meta`, plus the class-scoping pair `grade_classes` + `grade_roster_snapshot`). The full DDL is `app/Core/Schema.php` — read it rather than guessing at columns.
 - `formflow_db` (`FORMFLOW_DB`) — **login accounts** (`admin_users`), plus `forms`, `form_questions`, `form_responses` that become auto-graded "form" columns.
 
 `grade_form_meta` is an **overlay** on FormFlow form columns: the form's title,
 points, and responses stay read-only in FormFlow, but this table lets a teacher
 attach eGradeBook-side grading metadata (`term`, `category_id`, `weight`,
 `sort_order`) so a form column can join term-mode/weighted grading and be
-drag-reordered alongside manual activities. Keyed `(owner_id, section, form_id)`.
+drag-reordered alongside manual activities. Keyed `(owner_id, section, form_id)`
+— plus `school_year, semester, subject` since class scoping (below).
 Column ordering is now **unified** across activities + forms + the attendance
 column (all carry `sort_order`; the `reorder_columns` API and the `sheet`
 action's `uasort` keep them on one scale — `reorder_columns` special-cases the
@@ -48,54 +65,123 @@ the section (section-scoped like the roster; a section running multiple subjects
 pools their dates). The score is read-only; the table stores only the eGradeBook
 overlay (`enabled`, `term`, `category_id`, `weight`, `sort_order`), so the column
 joins weighted/term grading exactly like a form column. Keyed `(owner_id,
-section)`. Toggled by the `Attendance` checkbox → `set_attendance_enabled`;
-overlay edited via `set_attendance_meta`.
+section)` — plus `school_year, semester, subject` since class scoping (below).
+Toggled by the `Attendance` checkbox → `set_attendance_enabled`; overlay edited
+via `set_attendance_meta`.
 - `bcc_qr_attendance_db` (`ATTENDANCE_DB`) — the **student roster** (`students_tbl`: sections, names, courses) and the **attendance scans** (`attendance_tbl`, read only when the attendance column is enabled).
 
 All three constants live in `inc/db.php`. This design breaks if the databases
 move to separate physical servers — the joins would need a REST/replication
-bridge instead. There is **no `admin_users` table here**; login in `login.php`
-queries FormFlow's table directly via `password_verify`, so credentials stay in
-sync with FormFlow automatically.
+bridge instead. There is **no `admin_users` table here**; login (`AuthController`
+via `UserRepo`, called from `login.php`) queries FormFlow's table directly via
+`password_verify`, so credentials stay in sync with FormFlow automatically.
 
 ## Auth & access model
 
 - `inc/auth.php` gates every page (redirects to `login.php` if no session).
-- `index.php` additionally requires **`role === 'superadmin'`** — non-superadmins
-  get a 403 for both page loads and API calls. Treat eGradeBook as superadmin-only.
-- All grading data is scoped per teacher by `owner_id = $_SESSION['admin_id']`.
-  Any new query touching `grade_*` tables must filter/insert with `owner_id`, and
-  ownership-check helpers like `$ownsActivity()` guard mutations.
+- `index.php` additionally requires **`$_SESSION['admin_role'] === 'superadmin'`**
+  (set from FormFlow's `admin_users.role` at login) — non-superadmins get a 403 for
+  both page loads and API calls. Treat eGradeBook as superadmin-only.
+- All grading data is scoped per teacher by `owner_id = $_SESSION['admin_id']`
+  (exposed as `Auth::ownerId()`, passed into every repo/controller). Any new query
+  touching `grade_*` tables must filter/insert with `owner_id`, and ownership-check
+  helpers like `ActivityRepo::owns()` / `FormRepo::owns()` guard mutations.
 
-## index.php — single-file API + page
+## Class scoping (school year / semester / subject)
 
-`index.php` (~1650 lines) is the whole app. Two responsibilities in one file:
+The gradebook unit is a **class** = `(owner_id, school_year, semester, section,
+subject)`, not just `(owner_id, section)`. Existing rows carry `''` for the three
+scope columns — the **legacy class** — so old sheets keep working unchanged.
 
-1. **Schema bootstrap (top of file):** `CREATE TABLE IF NOT EXISTS` plus a series
-   of idempotent inline migrations (checked via `information_schema.COLUMNS` or
-   the `$colExists`/`addColIfMissing`/`hasCol` helpers in `inc/db.php`). New
-   columns/tables are added here, not in a separate migration system.
-2. **API layer:** any request with `?api=` (GET or POST) returns JSON and exits
-   before the HTML renders. It's one big `switch ($api)`. Key actions: `sections`,
-   `my_sections`, `sheet` (builds the whole grading matrix), `add_activity` /
-   `edit_activity` / `delete_activity`, `save_activity_score`, `bulk_fill_activity`,
-   `import_activity_scores`, `set_linked_activity`, `reorder_activities`,
-   `save_category` / `delete_category`, `get_transmute` / `save_transmute`,
-   `set_student_status` / `set_students_status`, `copy_activities`,
-   `set_attendance_enabled` / `set_attendance_meta`, and the
-   `set_use_defense` / `set_term_mode` toggles.
+- `App\Core\ClassScope` is the scope DTO, built from the request via
+  `Controller::classScope()` and passed to repos / `SheetRepo::build()` wherever a
+  bare `section` used to be. Empty fields = the legacy class.
+- Class-scoped tables (`grade_activities`, `grade_categories`, `grade_settings`,
+  `grade_form_meta`, `grade_attendance_meta`, `grade_student_status`) each carry
+  `school_year`/`semester`/`subject` and include them in their PK/UNIQUE key (see
+  `Schema.php`). **`grade_transmute` (global per teacher) and
+  `grade_pinned_sections` (a section-picker convenience) are intentionally NOT
+  class-scoped.** Scores hang off `activity_id`, so they inherit scope. The
+  attendance auto column also filters scans by `subject` when the class has one.
+- The section's classes are picked from a **Class dropdown** (`selClass`) fed by
+  the `classes` action; "➕ New class…" reveals an inline create form
+  (`create_class`). Classes live in a `grade_classes` registry (`ClassRepo`),
+  auto-registered when an activity is added (`ActivityController::add`) and when a
+  class is opened (`SheetController::sheet`), so a class stays in the dropdown even
+  with no activities. The `classes` list also unions in any class already present
+  in `grade_activities`. Subject suggestions in the create form come from
+  `attendance_tbl.subject` via `App\Models\SubjectRepo` (`subjects` action); prior
+  school years from `school_years`. `grades.js` injects the scope into **every**
+  `apiGet`/`apiPost` call and persists it in `localStorage` under `eg_class`.
+- **Roster snapshot** (`grade_roster_snapshot`): for non-legacy classes,
+  `RosterRepo::rosterForClass()` tops up a per-class snapshot from the live roster
+  (`INSERT IGNORE`) and reads from it, so a class keeps its students/names even if
+  `students_tbl` later changes; the legacy class always uses the live roster.
+  **Re-tag**: the `retag_class` action (`App\Models\ClassRepo` /
+  `App\Controllers\ClassController`, "Tag as class…" in the More menu) relabels a
+  whole class's rows from one scope to another (e.g. naming an untagged sheet).
+- NB: the app's existing **`term`** (Midterm/Final) is a sub-period *within* a
+  semester — **not** the semester. Full design in `docs/class-scoping-plan.md`.
 
-The `sheet` action is the core read: it assembles `students` (roster), unified
-`columns` (form columns from FormFlow + manual activity columns + the optional
-auto attendance column), and a `scores[student_no][key]` map, which the frontend
-renders.
+## Architecture — MVC/OOP (front controller + `app/`)
 
-After the API `switch`, the rest of the file is the HTML page. Shared UI pieces
-are in `components/` (`favico`, `footer`, `logoutModal`, `supportModal`).
+`index.php` is now a **thin front controller** (~45 lines): boot → auth gate →
+superadmin gate → schema bootstrap → then either route a `?api=` request to a
+controller (JSON) or render the grading-sheet view. The old ~2000-line monolith
+was refactored into `app/`, but the **`?api=` contract is unchanged**, so
+`assets/js/grades.js` was not touched *by the refactor* (verified with
+byte-for-byte old-vs-new JSON parity on the read + write actions). The later
+class-scoping feature is the one change that added scope params to its
+`apiGet`/`apiPost` — see "Class scoping" above.
+
+There is still **no Composer**. `app/bootstrap.php` registers a hand-rolled PSR-4
+autoloader (`App\` → `app/`) so the "drop the folder into htdocs" deploy model
+stays intact (no `composer install`). It also defines `APP_ROOT` (project root)
+and requires `inc/db.php` — which is now **bridge config constants only**; the
+mysqli connection + query helpers moved into `App\Core\Database`.
+
+Layers under `app/`:
+
+- **`Core/`** — `Database` (the single mysqli connection, `escape`/`hasCol`/
+  `colExists` + transaction wrappers), `Schema::migrate()` (all `CREATE TABLE IF
+  NOT EXISTS` + idempotent inline migrations — **add new columns/tables here**),
+  `Auth` (session gate + the superadmin gate + `ownerId()`), `Controller` (base:
+  holds `$db`/`$ownerId`, gives `json`/`ok`/`fail`/`post`/`get`/`classScope()`
+  helpers), `ClassScope` (the class-scope DTO — see "Class scoping"), and
+  `Router` (maps every `?api=` action name → `[Controller::class, 'method']` —
+  **register new actions here**; all 32 actions are listed in `Core/Router.php`).
+- **`Models/`** — one owner-scoped repository per table/domain. Grade tables:
+  `ActivityRepo`, `ScoreRepo`, `CategoryRepo`, `SettingsRepo`, `TransmuteRepo`
+  (holds `DEFAULT_EQUIV`), `StatusRepo`, `FormMetaRepo`, `AttendanceRepo`,
+  `PinnedRepo`, `ClassRepo` (cross-class re-tag). Cross-DB **bridge** repos,
+  isolated here: `RosterRepo`
+  (ATTENDANCE_DB roster), `SubjectRepo` (ATTENDANCE_DB subjects), `FormRepo`
+  (FORMFLOW_DB ownership guard), `UserRepo` (FORMFLOW_DB login). `SheetRepo::build()` is the composite read behind the
+  `sheet` action — the one query that spans all three databases, so its cross-DB
+  SQL is kept intact there rather than fragmented.
+- **`Controllers/`** — thin: parse `$_POST/$_GET`, validate, call repos, echo
+  JSON. One per API domain: `SectionController`, `SheetController`,
+  `ActivityController` (the biggest — CRUD, bulk fill, CSV import, linked mode,
+  reorder, and the verbatim `copy_activities` orchestration), `ColumnController`
+  (`reorder_columns` + `set_form_meta`), `AttendanceController`,
+  `SettingsController`, `TransmuteController` (its get-bands method is
+  **`getBands()`**, not `get()`, to avoid clashing with the base
+  `Controller::get()` input helper), `CategoryController`, `StatusController`,
+  `ClassController` (`retag_class`), plus `AuthController` (login, used by
+  `login.php`).
+- **`Views/`** — `sheet.php` (the grading-sheet page). `login.php` keeps its view
+  inline. Shared UI pieces are still in `components/` (`favico`, `footer`,
+  `logoutModal`, `supportModal`); the view includes them via `APP_ROOT`.
+
+**Where things go now:** a new DB column → `Core/Schema.php`; a new API action →
+a controller method + a `Router` map entry, with the SQL in a `Models/` repo (not
+the controller). The `sheet` read assembles `students` (roster), unified `columns`
+(FormFlow forms + manual activities + the optional auto attendance column), and a
+`scores[student_no][key]` map, which the frontend renders.
 
 ## Frontend (`assets/js/`)
 
-Vanilla JS, no framework. `grades.js` (~2260 lines) is the client for the whole
+Vanilla JS, no framework. `grades.js` (~3k lines) is the client for the whole
 grading sheet: it calls `index.php?api=...`, holds state in a global `SHEET`
 object, and computes grades client-side. Grading logic to preserve when editing:
 
@@ -105,8 +191,10 @@ object, and computes grades client-side. Grading logic to preserve when editing:
   enabled — attendance's `score` is present-count, `max` is total sessions).
 - **Transmutation:** raw 0–100 → 1.00–5.00 point via editable bands
   (`TRANSMUTE`, seeded from the PH college default scale). This is the single
-  source of truth for both flat and term grades; keep the PHP `$DEFAULT_EQUIV`
-  in `index.php` and JS `DEFAULT_EQUIV` in `grades.js` consistent.
+  source of truth for both flat and term grades. The default scale is
+  **duplicated** in two places that must be edited together:
+  `App\Models\TransmuteRepo::DEFAULT_EQUIV` (PHP, seeds a teacher's bands) and
+  `DEFAULT_EQUIV` in `grades.js` (JS fallback).
 - **Two grading modes** per section: flat (coursework × 0.50 + defense × 0.50,
   see `CW_WEIGHT`/`DEF_WEIGHT`) vs. term mode (Midterm/Final with weighted
   categories), toggled by `term_mode` in `grade_settings`.
@@ -120,9 +208,24 @@ theme persisted in `localStorage` under `ff_theme`, shared with FormFlow).
 
 ## Conventions
 
+- **SQL style:** repos use **prepared statements** (`prepare` + `bind_param`) —
+  there is not one `Database::escape()` call anywhere in `Models/`. The
+  deliberate exception is `SheetRepo`, which builds `IN (...)` lists of roster
+  student numbers / form ids by interpolation (mysqli can't bind a list),
+  escaping each element with `real_escape_string` and casting ids to `int`.
+  Follow the prepared-statement path for anything new; if you must interpolate,
+  escape or int-cast at the point of interpolation like `SheetRepo` does.
+- `Database`'s constructor also pins the app to **`Asia/Manila` (UTC+8)** for
+  both PHP and the MySQL session — don't set timezones elsewhere. `canAccess()`
+  checks a bridged DB is reachable (advisory, non-fatal).
 - Comments are bilingual (English + Filipino) and heavily explain the bridge
   assumptions — keep new schema/bridge changes documented the same way.
 - External deps are CDN `<link>`/`<script>` only (Bootstrap Icons, Google Fonts,
-  SweetAlert2). No local vendored libraries.
-- New DB columns: add an idempotent migration at the top of `index.php` rather
-  than assuming a fresh schema — production tables already exist.
+  SweetAlert2). No local vendored libraries. The heavy export libraries —
+  **SheetJS/xlsx** (Excel backup) and **jsPDF + autotable** (PDF export) — are
+  *lazy-loaded* from CDN inside `grades.js` (`loadScriptOnce` /
+  `loadExternalScript`) only when the user exports, so they stay off the initial
+  page load. Follow that pattern for anything else that bulky.
+- New DB columns: add an idempotent migration in `app/Core/Schema.php::migrate()`
+  (checked via `$db->colExists(...)`) rather than assuming a fresh schema —
+  production tables already exist.

@@ -21,6 +21,23 @@ let ALL_SECTIONS = [];        // cached section list (for the Copy-from picker)
 let PINNED = new Set();       // this teacher's chosen sections (subset shown in the picker)
 let SECTION_VIEW = 'pinned';  // 'pinned' = show only PINNED, 'all' = show everything
 
+/* ── Class scope (school_year + semester + subject) ─────────
+   The gradebook unit is a "class" = section + school_year + semester +
+   subject. Empty fields = the LEGACY class (existing sheets). CLASS rides
+   along with every API call (see apiGet/apiPost) and is persisted locally. */
+let CLASS = { school_year: '', semester: '', subject: '' };
+const CLASS_KEY = 'eg_class';
+function loadClassPref() {
+    try {
+        const j = JSON.parse(localStorage.getItem(CLASS_KEY) || '{}');
+        CLASS.school_year = j.school_year || '';
+        CLASS.semester    = j.semester || '';
+        CLASS.subject     = j.subject || '';
+    } catch (e) {}
+}
+function saveClassPref() { try { localStorage.setItem(CLASS_KEY, JSON.stringify(CLASS)); } catch (e) {} }
+function classParams() { return { school_year: CLASS.school_year, semester: CLASS.semester, subject: CLASS.subject }; }
+
 const $ = id => document.getElementById(id);
 
 /* ── Final grade config ─────────────────────────────────────
@@ -236,7 +253,7 @@ function parseApiResponse(txt) {
 }
 
 async function apiGet(params) {
-    const qs = new URLSearchParams(params);
+    const qs = new URLSearchParams({ ...classParams(), ...params });
     try {
         const res = await fetch(`${API}?${qs}`);
         return parseApiResponse(await res.text());
@@ -246,7 +263,7 @@ async function apiGet(params) {
 }
 async function apiPost(params) {
     const fd = new FormData();
-    Object.entries(params).forEach(([k, v]) => fd.append(k, v));
+    Object.entries({ ...classParams(), ...params }).forEach(([k, v]) => fd.append(k, v));
     try {
         const res = await fetch(API, { method: 'POST', body: fd });
         return parseApiResponse(await res.text());
@@ -276,6 +293,109 @@ async function loadSections() {
     /* if nothing pinned yet, default the picker to "All" so it isn't empty */
     if (PINNED.size === 0) SECTION_VIEW = 'all';
     renderSectionOptions();
+}
+
+/* ── Class pickers: subjects (per section) + school-year suggestions ── */
+async function loadSubjectsFor(section) {
+    const dl = $('subjectList');
+    if (!dl) return;
+    if (!section) { dl.innerHTML = ''; return; }
+    const d = await apiGet({ api: 'subjects', section });
+    const subs = (d && d.success && Array.isArray(d.subjects)) ? d.subjects : [];
+    /* suggestions only — Subject is a free-text input so a teacher can grade a
+       subject even before any QR attendance exists for it */
+    dl.innerHTML = subs.map(s => `<option value="${escAttr(s)}"></option>`).join('');
+}
+async function loadSchoolYears() {
+    const dl = $('syList');
+    if (!dl) return;
+    const d = await apiGet({ api: 'school_years' });
+    const years = (d && d.success && Array.isArray(d.school_years)) ? d.school_years : [];
+    dl.innerHTML = years.map(y => `<option value="${escAttr(y)}"></option>`).join('');
+}
+/* ── Class dropdown: list, select, create ── */
+let CLASSES = [];   // {school_year, semester, subject}[] for the current section
+const classKey = c => `${c.school_year}${c.semester}${c.subject}`;
+const classLabel = c => [c.school_year, c.semester, c.subject].filter(Boolean).join(' · ') || 'Existing (untagged) sheet';
+const classIsLegacy = () => !CLASS.school_year && !CLASS.semester && !CLASS.subject;
+
+/* Fill the Class <select> for a section: legacy + this teacher's classes +
+   "New class…". The current class is kept selected (carried across sections
+   even if it isn't in the new section's list yet). */
+async function loadClasses(section) {
+    const sel = $('selClass');
+    if (!sel) return;
+    hideNewClassForm();
+    if (!section) { sel.innerHTML = '<option value="__legacy__">Existing (untagged) sheet</option>'; return; }
+    const d = await apiGet({ api: 'classes', section });
+    CLASSES = (d && d.success && Array.isArray(d.classes)) ? d.classes : [];
+    const curKey = classKey(CLASS);
+    let html = '<option value="__legacy__">Existing (untagged) sheet</option>'
+        + CLASSES.map(c => `<option value="${escAttr(classKey(c))}">${escHtml(classLabel(c))}</option>`).join('');
+    if (!classIsLegacy() && !CLASSES.some(c => classKey(c) === curKey)) {
+        /* carry the current class across sections even if not registered there yet */
+        html += `<option value="${escAttr(curKey)}">${escHtml(classLabel(CLASS))}</option>`;
+        CLASSES.push({ school_year: CLASS.school_year, semester: CLASS.semester, subject: CLASS.subject });
+    }
+    html += '<option value="__new__">➕ New class…</option>';
+    sel.innerHTML = html;
+    sel.value = classIsLegacy() ? '__legacy__' : curKey;
+}
+
+function setClassFromSelect() {
+    const v = $('selClass').value;
+    if (v === '__legacy__') CLASS = { school_year: '', semester: '', subject: '' };
+    else {
+        const c = CLASSES.find(x => classKey(x) === v);
+        if (c) CLASS = { school_year: c.school_year, semester: c.semester, subject: c.subject };
+    }
+    saveClassPref();
+}
+
+async function onSelClassChange() {
+    if ($('selClass').value === '__new__') { showNewClassForm(); return; }
+    hideNewClassForm();
+    setClassFromSelect();
+    const section = $('selSection').value;
+    if (section) loadSheet(section);
+}
+
+function showNewClassForm() {
+    const f = $('newClassForm');
+    if (!f) return;
+    $('selSchoolYear').value = '';
+    $('selSemester').value = '';
+    $('selSubject').value = '';
+    loadSchoolYears();
+    loadSubjectsFor($('selSection').value);
+    f.style.display = 'flex';
+    $('selSchoolYear').focus();
+}
+function hideNewClassForm() {
+    const f = $('newClassForm');
+    if (f) f.style.display = 'none';
+}
+function revertClassSelect() {
+    hideNewClassForm();
+    const sel = $('selClass');
+    if (sel) sel.value = classIsLegacy() ? '__legacy__' : classKey(CLASS);
+}
+
+async function onCreateClass() {
+    const sy = $('selSchoolYear').value.trim();
+    const sem = $('selSemester').value;
+    const subj = $('selSubject').value.trim();
+    if (!sy && !sem && !subj) { showToastSafe('Enter a school year, semester, or subject.', 'error'); return; }
+    const section = $('selSection').value;
+    if (!section) { showToastSafe('Pick a section first.', 'error'); return; }
+    const d = await apiPost({ api: 'create_class', section, school_year: sy, semester: sem, subject: subj });
+    if (!d.success) { showToastSafe(d.message || 'Could not create class.', 'error'); return; }
+    CLASS = { school_year: sy, semester: sem, subject: subj };
+    saveClassPref();
+    await loadClasses(section);
+    $('selClass').value = classKey(CLASS);
+    hideNewClassForm();
+    loadSheet(section);
 }
 
 /* ── Render the section <select>, filtered by the current view ── */
@@ -2746,8 +2866,52 @@ if (typeof escHtml !== 'function') {
     window.escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/* ── Tag as class (re-tag the current sheet into a named class) ── */
+function openRetag() {
+    if (!SHEET) { showToastSafe('Open a section first.', 'error'); return; }
+    const label = (CLASS.school_year || CLASS.semester || CLASS.subject)
+        ? [CLASS.school_year, CLASS.semester, CLASS.subject].filter(Boolean).join(' · ')
+        : 'the untagged (existing) sheet';
+    $('retagFrom').innerHTML = `<i class="bi bi-info-circle"></i> Tagging section <b>${escHtml(SHEET.section)}</b> — ${escHtml(label)} — into:`;
+    $('retagSy').value = CLASS.school_year;
+    $('retagSem').value = CLASS.semester;
+    $('retagSubj').value = CLASS.subject;
+    $('retagErr').style.display = 'none';
+    $('retagModal').classList.add('show');
+}
+function closeRetag() { $('retagModal').classList.remove('show'); }
+async function applyRetag() {
+    if (!SHEET) return;
+    const toSy = $('retagSy').value.trim();
+    const toSem = $('retagSem').value;
+    const toSubj = $('retagSubj').value.trim();
+    const err = $('retagErr');
+    const show = m => { err.textContent = m; err.style.display = 'block'; };
+    if (!toSy && !toSem && !toSubj) return show('Enter a school year, semester, or subject.');
+    if (toSy === CLASS.school_year && toSem === CLASS.semester && toSubj === CLASS.subject)
+        return show('That is the same as the current class.');
+    const btn = $('retagApply');
+    btn.disabled = true;
+    /* the SOURCE (current class) rides along via apiPost's scope injection */
+    const d = await apiPost({ api: 'retag_class', to_school_year: toSy, to_semester: toSem, to_subject: toSubj });
+    btn.disabled = false;
+    if (!d.success) return show(d.message || 'Could not tag.');
+    closeRetag();
+    /* switch the view to the newly-tagged class */
+    CLASS.school_year = toSy; CLASS.semester = toSem; CLASS.subject = toSubj;
+    saveClassPref();
+    if ($('selSchoolYear')) $('selSchoolYear').value = toSy;
+    if ($('selSemester')) $('selSemester').value = toSem;
+    if ($('selSubject')) $('selSubject').value = toSubj;
+    showToastSafe(`Tagged as ${[toSy, toSem, toSubj].filter(Boolean).join(' · ')} — ${d.moved} activit${d.moved === 1 ? 'y' : 'ies'} moved.`, 'success');
+    loadSheet(SHEET.section);
+}
+
 /* ── wire up ────────────────────────────────────────────── */
-$('selSection').addEventListener('change', e => loadSheet(e.target.value));
+$('selSection').addEventListener('change', async e => {
+    await loadClasses(e.target.value);   // refresh the class dropdown for this section
+    loadSheet(e.target.value);
+});
 /* modern section dropdown: open/close, live search, outside-click + Esc */
 (function () {
     const btn = $('mselBtn'), search = $('mselSearch'), wrap = $('mselSection');
@@ -2879,6 +3043,9 @@ $('importSample').addEventListener('click', e => {
     downloadSampleCsv();
 });
 $('btnCopyFrom').addEventListener('click', openCopyModal);
+$('btnRetag').addEventListener('click', openRetag);
+$('retagCancel').addEventListener('click', closeRetag);
+$('retagApply').addEventListener('click', applyRetag);
 $('copyCancel').addEventListener('click', closeCopyModal);
 $('copyApply').addEventListener('click', applyCopy);
 $('copyFromSection').addEventListener('change', () => {
@@ -2976,4 +3143,9 @@ $('pinList').addEventListener('change', e => {
     window.addEventListener('resize', hide);
 })();
 
+/* ── Class picker: restore saved selection + wire the dropdown/create form ── */
+loadClassPref();
+if ($('selClass')) $('selClass').addEventListener('change', onSelClassChange);
+if ($('btnCreateClass')) $('btnCreateClass').addEventListener('click', onCreateClass);
+if ($('btnCancelClass')) $('btnCancelClass').addEventListener('click', revertClassSelect);
 loadSections();
