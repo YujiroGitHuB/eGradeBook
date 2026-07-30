@@ -89,7 +89,8 @@ no other source — recitation, projects, defense.
 
 ## Requirements
 
-- PHP **8.0+** with `mysqli` (developed on PHP 8.2)
+- PHP **7.4+** with `mysqli` — developed and run on PHP **8.2**, which is what to
+  use if you have the choice
 - MySQL / MariaDB
 - Apache or any PHP-capable web server — XAMPP is the intended setup
 - An existing **FormFlow** install (for accounts) and **QR Attendance** install
