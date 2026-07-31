@@ -3,7 +3,7 @@ name: Deploy to InfinityFree
 on:
   push:
     branches:
-      - main   # palitan ng "master" kung yun ang default branch mo
+      - master   # palitan ng "master" kung yun ang default branch mo
 
 jobs:
   deploy:
