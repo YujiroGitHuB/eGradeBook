@@ -1,0 +1,30 @@
+name: Deploy to InfinityFree
+
+on:
+  push:
+    branches:
+      - main   # palitan ng "master" kung yun ang default branch mo
+
+jobs:
+  deploy:
+    name: FTP Deploy
+    runs-on: ubuntu-latest
+    environment: Server   # dapat pareho sa environment name mo sa GitHub Secrets
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: FTP Deploy
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 21
+          server-dir: /htdocs/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/README.md
