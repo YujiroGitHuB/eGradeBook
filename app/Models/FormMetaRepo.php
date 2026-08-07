@@ -76,4 +76,24 @@ class FormMetaRepo
         $u->execute();
         $u->close();
     }
+
+    /* Itago / ibalik ang form column sa KLASENG ito. Dahil per-section ang
+       auto-discovery ng forms (walang subject ang FormFlow), ito ang paraan
+       para hindi lumabas sa isang klase ang form ng ibang subject sa parehong
+       section. Overlay lang ito — buo pa rin ang form at ang mga sagot sa
+       FormFlow, at ang ibang klase ay hindi apektado. */
+    public function setHidden(ClassScope $c, int $formId, bool $hidden): void
+    {
+        $admin_id = $this->ownerId;
+        $sec = $c->section;
+        $sy  = $c->schoolYear;
+        $sem = $c->semester;
+        $sub = $c->subject;
+        $h   = $hidden ? 1 : 0;
+        $u = $this->db->prepare("UPDATE grade_form_meta SET hidden=?
+            WHERE owner_id=? AND section=? AND form_id=? AND school_year=? AND semester=? AND subject=?");
+        $u->bind_param('iisisss', $h, $admin_id, $sec, $formId, $sy, $sem, $sub);
+        $u->execute();
+        $u->close();
+    }
 }

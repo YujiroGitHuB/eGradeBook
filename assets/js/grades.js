@@ -611,7 +611,10 @@ async function loadSheet(section) {
 /* ── Column picker ──────────────────────────────────────── */
 function renderColumnPicker() {
     const box = $('colTags');
-    if (!SHEET.columns.length) {
+    const hiddenForms = SHEET.hidden_forms || [];
+    /* Keep the picker visible when every column is hidden — otherwise there
+       would be no way back to the "restore" chips below. */
+    if (!SHEET.columns.length && !hiddenForms.length) {
         $('gsColumns').style.display = 'none';
         return;
     }
@@ -633,8 +636,21 @@ function renderColumnPicker() {
                         <span class="ct">${meta}</span>
                     </label>`;
     }).join('');
+
+    /* Forms hidden in THIS class — click to bring one back. They are still
+       live in FormFlow and in the section's other classes; only this class
+       leaves them out of the sheet and the grade. */
+    if (hiddenForms.length) {
+        box.innerHTML += `<span class="gs-hidden-wrap" data-tip="Forms from this section that are hidden in this class. FormFlow has no subject, so every class of a section sees all of its forms — click to bring one back.">
+                    <span class="gs-hidden-lbl"><i class="bi bi-eye-slash"></i> Hidden here:</span>
+                    ${hiddenForms.map(f => `<button class="gs-tag gs-tag-hidden" data-fid="${f.id}" data-tip="Restore this form column">${escHtml(f.title)} <i class="bi bi-arrow-counterclockwise"></i></button>`).join('')}
+                </span>`;
+    }
+
     box.querySelectorAll('.gs-tag').forEach(tag => {
-        tag.querySelector('input').addEventListener('change', e => {
+        const cb = tag.querySelector('input');
+        if (!cb) return;                       // restore chip, wired below
+        cb.addEventListener('change', e => {
             const key = tag.dataset.key;
             if (e.target.checked) {
                 selectedCols.add(key);
@@ -645,6 +661,9 @@ function renderColumnPicker() {
             }
             render();
         });
+    });
+    box.querySelectorAll('.gs-tag-hidden').forEach(btn => {
+        btn.addEventListener('click', () => setFormHidden(parseInt(btn.dataset.fid), false));
     });
 }
 
@@ -806,7 +825,8 @@ function render() {
             const _fprintSub = `<span class="act-print-sub">${_fprintBits.map(escHtml).join(' · ')}</span>`;
             head += `<th class="act-col frm-col" data-colkey="${c.key}"><span class="act-head">
                             <span class="act-drag" draggable="true" data-colkey="${c.key}" data-tip="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
-                            <span class="frm-title" data-tip="From FormFlow — rename it there"><i class="bi bi-ui-checks-grid frm-ic"></i>${escHtml(c.title)}</span></span>
+                            <span class="frm-title" data-tip="From FormFlow — rename it there"><i class="bi bi-ui-checks-grid frm-ic"></i>${escHtml(c.title)}</span>
+                            <button class="frm-hide" data-fid="${c.id}" data-tip="Hide in this class — FormFlow shows a section's forms in every class of that section. Hiding removes it here only (and from the grade); it stays in FormFlow and in your other classes."><i class="bi bi-eye-slash"></i></button></span>
                             ${fsub}<span class="act-print">${escHtml(c.title)}${_fprintSub}</span></th>`;
         } else if (c.type === 'attendance') {
             /* Attendance column — AUTO from the QR scans. Score (present ÷
@@ -1216,6 +1236,10 @@ function render() {
             if (e.key === 'Enter') inp.blur();
         });
     });
+    /* wire "hide this form in this class" */
+    $('gsArea').querySelectorAll('button.frm-hide').forEach(btn => {
+        btn.addEventListener('click', () => setFormHidden(parseInt(btn.dataset.fid), true));
+    });
 
     $('gsStats').style.display = 'flex';
     $('stStudents').textContent = SHEET.students.length;
@@ -1387,6 +1411,22 @@ async function onFormEdit(e) {
     const d = await apiPost(payload);
     if (!d.success) { showToastSafe(d.message || 'Update failed', 'error'); return; }
     render();
+}
+
+/* ── Hide / restore a form column IN THIS CLASS ──
+   FormFlow has no notion of a subject — it only knows a form's `section` — so a
+   section's forms are auto-discovered into EVERY class of that section. When one
+   section runs two subjects, the other subject's form would otherwise show up
+   here and count toward the grade. Hiding is an eGradeBook-side overlay
+   (grade_form_meta.hidden, keyed per class): the form and its responses stay
+   untouched in FormFlow, and your other classes are unaffected.
+   Reloads the sheet because the set of columns changes. */
+async function setFormHidden(fid, hidden) {
+    if (!SHEET || !fid) return;
+    const d = await apiPost({ api: 'set_form_meta', section: SHEET.section, form_id: fid, hidden: hidden ? 1 : 0 });
+    if (!d.success) { showToastSafe(d.message || 'Update failed', 'error'); return; }
+    await loadSheet(SHEET.section);
+    showToastSafe(hidden ? 'Form hidden in this class.' : 'Form restored.', 'success');
 }
 
 /* ── Save the attendance-column overlay (term / category / weight) ──

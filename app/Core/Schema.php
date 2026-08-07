@@ -102,6 +102,7 @@ class Schema
             category_id INT DEFAULT NULL,
             weight      DECIMAL(6,2) NOT NULL DEFAULT 0,
             sort_order  INT NOT NULL DEFAULT 0,
+            hidden      TINYINT(1) NOT NULL DEFAULT 0,
             PRIMARY KEY (owner_id, section, form_id)
         )");
 
@@ -194,6 +195,19 @@ class Schema
         if (!self::keyHasColumn($db, 'grade_student_status', 'uniq_owner_sec_student', 'subject')) {
             $conn->query("ALTER TABLE grade_student_status DROP INDEX uniq_owner_sec_student,
                 ADD UNIQUE KEY uniq_owner_sec_student (owner_id, section, student_no, school_year, semester, subject)");
+        }
+
+        /* Per-class HIDE ng isang form column. Ang FormFlow ay walang konsepto ng
+           subject — `section` lang ang alam ng forms / form_responses — kaya ang
+           auto-discovery ng form columns ay per-SECTION. Kapag maraming subject ang
+           isang section (hal. BSIT-1A / Programming at BSIT-1A / Networking), lalabas
+           ang form ng ibang subject sa bawat klase at PAPASOK pa sa coursework —
+           maling grado. Walang upstream data na pang-filter, kaya eGradeBook-side ang
+           tanging solusyon: ang guro ang nagtatago ng hindi kabilang na form, at
+           dahil class-scoped na ang PK ng talahanayang ito, per-class ang tago.
+           Default 0 = nakikita, kaya WALANG nagbabago sa mga dati nang sheet. */
+        if (!$db->colExists('grade_form_meta', 'hidden')) {
+            $conn->query("ALTER TABLE grade_form_meta ADD COLUMN hidden TINYINT(1) NOT NULL DEFAULT 0");
         }
 
         /* Roster snapshot (Phase 3) — freezes (student_no, fullname, course) per

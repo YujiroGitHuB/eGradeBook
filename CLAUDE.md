@@ -45,9 +45,22 @@ apps' databases **on the same MySQL server** using cross-DB SQL (`` `db`.`table`
 `grade_form_meta` is an **overlay** on FormFlow form columns: the form's title,
 points, and responses stay read-only in FormFlow, but this table lets a teacher
 attach eGradeBook-side grading metadata (`term`, `category_id`, `weight`,
-`sort_order`) so a form column can join term-mode/weighted grading and be
+`sort_order`, `hidden`) so a form column can join term-mode/weighted grading and be
 drag-reordered alongside manual activities. Keyed `(owner_id, section, form_id)`
 — plus `school_year, semester, subject` since class scoping (below).
+
+**`hidden` — the per-class escape hatch for FormFlow's missing subject.** FormFlow
+has no `subject` column at all (not on `forms`, not on `form_responses`), so form
+columns can only be auto-discovered per **section**. When one section runs two
+subjects, every class of that section would otherwise show *all* of it forms — and
+count them toward the grade. There is no upstream data to filter on, so the fix is
+teacher-driven: `grade_form_meta.hidden = 1` drops the form from *this* class only.
+`SheetRepo::build()` reads the hidden set **before** building form columns, so a
+hidden form never becomes a column and its scores never enter the `scores` map
+(hence never the grade); the build returns the dropped ones as `hidden_forms`
+(`[{id,title}]`) so `grades.js` can offer restore chips under the column picker.
+Default `0` = visible, so existing sheets are unchanged. Toggled through the
+existing `set_form_meta` action (partial update — no new route).
 Column ordering is now **unified** across activities + forms + the attendance
 column (all carry `sort_order`; the `reorder_columns` API and the `sheet`
 action's `uasort` keep them on one scale — `reorder_columns` special-cases the

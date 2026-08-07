@@ -55,7 +55,26 @@ class SheetRepo
             $noList = implode(',', $esc);
         }
 
-        /* 2) FORM COLUMNS — owned by the logged-in teacher, filtered by section */
+        /* 2) FORM COLUMNS — owned by the logged-in teacher, filtered by section.
+           Per-SECTION lang ang filter na ito dahil walang `subject` ang FormFlow
+           (wala sa `forms`, wala rin sa `form_responses`) — walang upstream data
+           na pang-scope sa isang subject. Kaya kapag maraming klase ang isang
+           section, lalabas ang LAHAT ng form nito sa bawat klase. Ang panlunas ay
+           ang per-class na `hidden` flag sa grade_form_meta: itinatago ng guro ang
+           form na hindi kabilang sa klaseng ito, at hindi na ito nagiging column
+           (kaya hindi rin papasok sa coursework). Hindi ito binubura sa FormFlow. */
+        $hiddenIds = [];
+        $hStmt = $conn->prepare(
+            "SELECT form_id FROM grade_form_meta
+             WHERE owner_id = ? AND section = ? AND school_year = ? AND semester = ? AND subject = ?
+               AND hidden = 1"
+        );
+        $hStmt->bind_param('issss', $admin_id, $section, $sy, $sem, $subj);
+        $hStmt->execute();
+        $hRes = $hStmt->get_result();
+        while ($h = $hRes->fetch_assoc()) $hiddenIds[(int)$h['form_id']] = true;
+        $hStmt->close();
+
         $section_esc = $conn->real_escape_string($section);
         $fres = $conn->query(
             "SELECT DISTINCT f.id, f.title, f.accent_color, f.created_at
@@ -69,7 +88,14 @@ class SheetRepo
         );
         $formMap = [];   // form_id => index in $columns
         $formIds = [];
+        $hiddenForms = [];   // {id,title} ng mga nakatago — para may maibalik ang UI
         while ($f = $fres->fetch_assoc()) {
+            /* Nakatago sa klaseng ito — hindi na ginagawang column, pero ipinapasa
+               pa rin sa client para may makita't maibalik ng guro. */
+            if (isset($hiddenIds[(int)$f['id']])) {
+                $hiddenForms[] = ['id' => (int)$f['id'], 'title' => $f['title']];
+                continue;
+            }
             $key = 'f' . $f['id'];
             $columns[$key] = [
                 'key'         => $key,
@@ -318,6 +344,9 @@ class SheetRepo
             'categories'  => $categories,
             'statuses'    => $statuses,
             'attendance_enabled' => $attEnabled,
+            /* Mga form ng section na itinago sa KLASENG ito (hindi columns).
+               Ipinapasa para maipakita ng UI ang "Hidden forms" at maibalik. */
+            'hidden_forms' => $hiddenForms,
         ];
     }
 }

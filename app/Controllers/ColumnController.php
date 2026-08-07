@@ -101,6 +101,11 @@ class ColumnController extends Controller
             $fWt = max(0, (float)$_POST['weight']);
             $meta->setWeight($scope, $fid, $fWt);
         }
+        /* Itago / ibalik sa klaseng ito — para hindi lumabas sa isang klase ang
+           form ng ibang subject sa parehong section (per-section ang FormFlow). */
+        if (array_key_exists('hidden', $_POST)) {
+            $meta->setHidden($scope, $fid, (int)$_POST['hidden'] === 1);
+        }
         $this->ok();
     }
 }
