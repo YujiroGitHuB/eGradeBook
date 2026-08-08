@@ -171,6 +171,17 @@ scope columns — the **legacy class** — so old sheets keep working unchanged.
   **Re-tag**: the `retag_class` action (`App\Models\ClassRepo` /
   `App\Controllers\ClassController`, "Tag as class…" in the More menu) relabels a
   whole class's rows from one scope to another (e.g. naming an untagged sheet).
+  It splits the scoped tables in two: `ClassRepo::DATA_TABLES` (the six the
+  teacher actually fills) are **moved**, and the target is refused if any of them
+  already has rows — `targetConflicts()` checks all six and names them in the
+  error, where the old guard looked only at `grade_activities` and let the rest
+  fall through to a raw MySQL "Duplicate entry". `grade_roster_snapshot` is
+  deliberately **excluded from that guard and merged instead** (`INSERT IGNORE`
+  the source rows, then delete them): it fills itself on *every* read of a tagged
+  class, so counting it as a conflict would block re-tagging into any class that
+  had merely been opened, and moving it outright would collide. IGNORE keeps the
+  target's already-captured name and preserves source-only students — the very
+  students the snapshot exists to hold on to.
 - NB: the app's existing **`term`** (Midterm/Final) is a sub-period *within* a
   semester — **not** the semester. Full design in `docs/class-scoping-plan.md`.
 
@@ -194,7 +205,9 @@ mysqli connection + query helpers moved into `App\Core\Database`.
 Layers under `app/`:
 
 - **`Core/`** — `Database` (the single mysqli connection, `escape`/`hasCol`/
-  `colExists` + transaction wrappers), `Schema::migrate()` (all `CREATE TABLE IF
+  `colExists` + transaction wrappers; it **throws** `RuntimeException` when MySQL
+  is unreachable rather than echoing JSON, so `index.php` / `login.php` can answer
+  with JSON or an HTML page as appropriate), `Schema::migrate()` (all `CREATE TABLE IF
   NOT EXISTS` + idempotent inline migrations — **add new columns/tables here**),
   `Auth` (session gate + the superadmin gate + `ownerId()`), `Controller` (base:
   holds `$db`/`$ownerId`, gives `json`/`ok`/`fail`/`post`/`get`/`classScope()`
@@ -251,6 +264,11 @@ object, and computes grades client-side. Grading logic to preserve when editing:
   categories), toggled by `term_mode` in `grade_settings`.
 - **Status overrides** (INC/DRP/W) are an overlay in `grade_student_status`; they
   never modify scores.
+- **Three tables carry a `category_id`**, not two: `grade_activities`,
+  `grade_form_meta` *and* `grade_attendance_meta`. `CategoryRepo::deleteWithUnassign()`
+  must clear all three — it used to miss the attendance one, leaving it pointed at
+  a deleted category, and since `termGrade()` only matches categories that still
+  exist, the attendance column dropped out of the term grade silently.
 - **Both grading modes obey the same two controls** — the column picker
   (`selectedCols`) and the "Missing = 0" checkbox. `termGrade()` used to read
   every column and always count an unscored one as 0, so in term mode both
@@ -286,6 +304,21 @@ theme persisted in `localStorage` under `ff_theme`, shared with FormFlow).
   *lazy-loaded* from CDN inside `grades.js` (`loadScriptOnce` /
   `loadExternalScript`) only when the user exports, so they stay off the initial
   page load. Follow that pattern for anything else that bulky.
-- New DB columns: add an idempotent migration in `app/Core/Schema.php::migrate()`
-  (checked via `$db->colExists(...)`) rather than assuming a fresh schema —
-  production tables already exist.
+- New DB columns: add an idempotent migration in `app/Core/Schema.php` — inside
+  **`runAll()`**, not `migrate()` — checked via `$db->colExists(...)` rather than
+  assuming a fresh schema, since production tables already exist.
+- **`Schema::migrate()` is version-gated, and the version is this file's own
+  `filemtime()`.** The migrations cost ~285 ms per request (≈25 `colExists()`
+  calls, ~10.8 ms each because `information_schema` is slow on MariaDB 10.4) and
+  ran on *every* `?api=` hit, so every score save paid it. Now a marker row in
+  `grade_schema_version` short-circuits the whole thing in ~0.3 ms. Because the
+  marker is the file's mtime, **editing `Schema.php` re-runs the migrations by
+  itself** — there is no version constant to remember to bump. Nothing else may
+  write that table.
+- **Errors: log the detail, show a sentence.** `index.php` and the controllers
+  never put `$e->getMessage()` in a response — a teacher was seeing raw MySQL text
+  like `Duplicate entry '230-…' for key 'PRIMARY'`. Use `error_log()` plus a
+  human message. Likewise an unauthenticated `?api=` call gets **401 JSON with
+  `auth: false`** instead of a 302 to `login.php` (`fetch` follows the redirect and
+  the client would otherwise render login-page HTML as the error text);
+  `grades.js` watches for that flag and sends the user back to log in.

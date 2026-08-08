@@ -12,7 +12,21 @@ if (!empty($_SESSION['admin_id'])) {
   exit;
 }
 
-$db = new Database();
+/* Ang Database ay nag-t-throw na kapag hindi maabot ang MySQL (dating nag-e-echo
+   ng JSON kahit sa page load). Dito ito nagiging maayos na pahina — hindi
+   puwedeng blangko ang login screen kapag patay ang DB. */
+try {
+    $db = new Database();
+} catch (\Throwable $e) {
+    error_log('eGradeBook login boot failed: ' . $e);
+    http_response_code(503);
+    echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Database unavailable</title>'
+        . '<link rel="stylesheet" href="assets/css/global.css"></head>'
+        . '<body class="bg-glow" style="display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;">'
+        . '<div><h2>Database unavailable</h2><p style="color:var(--muted);">eGradeBook could not reach MySQL. '
+        . 'Check that the server is running, then reload.</p></div></body></html>';
+    exit;
+}
 
 $error = '';
 $next  = $_GET['next'] ?? 'index.php';

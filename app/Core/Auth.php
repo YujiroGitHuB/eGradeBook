@@ -42,14 +42,28 @@ class Auth
         session_start();
     }
 
-    /* Redirect to login if there is no session (gates every page). */
-    public static function requireLogin(): void
+    /* Gates every page. Ang isang ?api= request ay HINDI dapat i-redirect:
+       susundan ito ng fetch(), matatanggap ang HTML ng login page, at ang
+       parseApiResponse() ay magpapakita ng unang 200 karakter ng HTML bilang
+       mensahe ng error. 401 JSON ang ipinapadala para malaman ng client na
+       nag-expire ang session at masabi ito nang maayos. */
+    public static function requireLogin(bool $isApi = false): void
     {
         self::start();
-        if (empty($_SESSION['admin_id'])) {
-            header('Location: login.php?next=' . urlencode($_SERVER['REQUEST_URI']));
+        if (!empty($_SESSION['admin_id'])) return;
+
+        if ($isApi) {
+            header('Content-Type: application/json');
+            http_response_code(401);
+            echo json_encode([
+                'success' => false,
+                'auth'    => false,
+                'message' => 'Your session expired. Please log in again.',
+            ]);
             exit;
         }
+        header('Location: login.php?next=' . urlencode($_SERVER['REQUEST_URI']));
+        exit;
     }
 
     public static function isSuperadmin(): bool

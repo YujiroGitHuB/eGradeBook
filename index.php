@@ -18,13 +18,34 @@ use App\Core\Database;
 use App\Core\Schema;
 use App\Core\Router;
 
-Auth::requireLogin();                 // login gate (bridged to FormFlow admin_users)
-
+/* Alamin muna kung API bago ang mga gate: ang isang ?api= request ay dapat
+   makatanggap ng JSON (401/403/500), hindi ng redirect o HTML page. */
 $isApi = isset($_GET['api']) || isset($_POST['api']);
+
+Auth::requireLogin($isApi);           // login gate (bridged to FormFlow admin_users)
 Auth::requireSuperadmin($isApi);      // eGradeBook is superadmin-only (403 otherwise)
 
-$db = new Database();                 // egradebook_db + FORMFLOW/ATTENDANCE bridge + timezone
-Schema::migrate($db);                 // idempotent CREATE TABLE + inline migrations
+try {
+    $db = new Database();             // egradebook_db + FORMFLOW/ATTENDANCE bridge + timezone
+    Schema::migrate($db);             // gated by Schema.php's filemtime; see Schema::migrate()
+} catch (\Throwable $e) {
+    /* Hindi maabot ang DB. Dating JSON ang isinusuka nito kahit page load,
+       kaya blangkong pahina na may JSON blob ang nakikita ng guro. */
+    error_log('eGradeBook boot failed: ' . $e);
+    if ($isApi) {
+        header('Content-Type: application/json');
+        http_response_code(503);
+        echo json_encode(['success' => false, 'message' => 'The database is unavailable. Please try again shortly.']);
+    } else {
+        http_response_code(503);
+        echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Database unavailable</title>'
+            . '<link rel="stylesheet" href="assets/css/global.css"></head>'
+            . '<body class="bg-glow" style="display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;">'
+            . '<div><h2>Database unavailable</h2><p style="color:var(--muted);">eGradeBook could not reach MySQL. '
+            . 'Check that the server is running, then reload.</p></div></body></html>';
+    }
+    exit;
+}
 
 /* ── API LAYER — any ?api= request returns JSON and exits ── */
 if ($isApi) {
@@ -33,7 +54,12 @@ if ($isApi) {
     try {
         (new Router($db, Auth::ownerId()))->dispatch((string)$api);
     } catch (\Throwable $e) {
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        /* Ang hilaw na $e->getMessage() ay nauuwi sa hilaw na SQL/path text sa
+           mukha ng guro (hal. "Duplicate entry '230-…' for key 'PRIMARY'").
+           Sa log iyon; sa user ay isang mababasang pangungusap. */
+        error_log('eGradeBook API error [' . $api . ']: ' . $e);
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Something went wrong on the server. Please try again.']);
     }
     $db->close();
     exit;

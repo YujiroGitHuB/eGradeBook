@@ -58,9 +58,15 @@ class ClassController extends Controller
             return;
         }
 
+        /* Tingnan LAHAT ng table na inililipat, hindi activities lang — kung hindi,
+           ang klaseng may settings/category/form setup pero walang activity ay
+           nakalulusot dito at bumabagsak sa hilaw na "Duplicate entry" ng MySQL.
+           (Ang roster snapshot ay sadyang wala rito: kusa itong nabubuo sa
+           pagbukas lang ng klase, at minementeha ito ng ClassRepo::retag.) */
         $repo = new ClassRepo($this->db, $this->ownerId);
-        if ($repo->classHasActivities($source->section, $toSy, $toSem, $toSubj)) {
-            $this->fail('That class already has activities. Pick an empty class to tag into.');
+        $conflicts = $repo->targetConflicts($source->section, $toSy, $toSem, $toSubj);
+        if ($conflicts) {
+            $this->fail('That class already has ' . implode(', ', $conflicts) . '. Pick an empty class to tag into.');
             return;
         }
 
@@ -75,7 +81,10 @@ class ClassController extends Controller
                 'to'    => ['school_year' => $toSy, 'semester' => $toSem, 'subject' => $toSubj],
             ]);
         } catch (\Throwable $e) {
-            $this->fail('Could not re-tag: ' . $e->getMessage());
+            /* Ang tunay na banggaan ay nahuhuli na ng targetConflicts() sa itaas;
+               kung may nakalusot pa rin, hindi hilaw na SQL ang dapat makita. */
+            error_log('eGradeBook retag failed: ' . $e);
+            $this->fail('Could not re-tag this class. Please try again.');
         }
     }
 }

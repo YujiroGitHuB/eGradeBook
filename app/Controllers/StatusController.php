@@ -48,7 +48,8 @@ class StatusController extends Controller
             (new StatusRepo($this->db, $this->ownerId))->setMany($scope, $status, $snos);
             $this->ok(['status' => $status, 'count' => count($snos)]);
         } catch (\Throwable $e) {
-            $this->fail('Could not save: ' . $e->getMessage());
+            error_log('eGradeBook set_students_status failed: ' . $e);
+            $this->fail('Could not save the status. Please try again.');
         }
     }
 }

@@ -45,7 +45,8 @@ class TransmuteController extends Controller
             (new TransmuteRepo($this->db, $this->ownerId))->replaceAll($clean);
             $this->ok(['grade_equiv' => $clean]);
         } catch (\Throwable $e) {
-            $this->fail('Could not save: ' . $e->getMessage());
+            error_log('eGradeBook save_transmute failed: ' . $e);
+            $this->fail('Could not save the transmutation bands. Please try again.');
         }
     }
 }

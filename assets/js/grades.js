@@ -4,6 +4,7 @@
 const API = 'index.php'; // same-folder relative — grades.js is only ever loaded by index.php (eGradeBook standalone app)
 let SHEET = null; // { students, columns, scores, section }
 let selectedCols = new Set(); // set of column keys ('f12','a3',...)
+let SESSION_ENDED = false;    // 401 na nakita — isang babala lang, hindi kada request
 let selectedStudents = new Set(); // set of student_no selected for bulk edit
 let sortKey = null;               // null | 'name' | 'grade' — row sort column
 let sortDir = 1;                  // 1 = ascending, -1 = descending
@@ -250,12 +251,22 @@ function parseApiResponse(txt) {
         handleHostChallenge();
         return { success: false, challenge: true, message: 'Host security check — please wait…' };
     }
+    let d;
     try {
-        return JSON.parse(txt);
+        d = JSON.parse(txt);
     } catch (e) {
         console.error('non-JSON:', txt);
         return { success: false, message: (txt || '').trim().slice(0, 200) || 'Unexpected server response.' };
     }
+    /* Nag-expire ang session (401 mula sa Auth::requireLogin). Walang
+       mase-save mula rito, kaya sabihin ito nang malinaw at ibalik sa login
+       sa halip na hayaang mabigo nang tahimik ang bawat susunod na pindot. */
+    if (d && d.auth === false && !SESSION_ENDED) {
+        SESSION_ENDED = true;
+        showToastSafe(d.message || 'Your session expired. Please log in again.', 'error');
+        setTimeout(() => { window.location.href = 'login.php'; }, 1800);
+    }
+    return d;
 }
 
 async function apiGet(params) {

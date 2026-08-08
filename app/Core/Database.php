@@ -17,23 +17,22 @@ class Database
 
     public function __construct()
     {
-        $this->conn = new mysqli(DB_HOST, DB_USER, DB_PASS);
+        /* Nag-THROW, hindi nag-e-echo. Dati ay JSON ang isinusulat nito at
+           agad na exit — kaya kahit PAGE load ay hubad na JSON blob ang lumalabas
+           (kasama pa ang connect_error, na may host/user). Ang tumatawag ang
+           bahalang magpasya kung JSON ba o HTML ang nababagay; tingnan ang
+           index.php at login.php. */
+        $this->conn = @new mysqli(DB_HOST, DB_USER, DB_PASS);
 
         if ($this->conn->connect_error) {
-            http_response_code(500);
-            echo json_encode([
-                'success' => false,
-                'message' => 'DB connection failed: ' . $this->conn->connect_error,
-            ]);
-            exit;
+            throw new \RuntimeException('DB connection failed: ' . $this->conn->connect_error);
         }
 
         // Auto-create eGradeBook's own database (idempotent)
         $this->conn->query("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 
         if (!$this->conn->select_db(DB_NAME)) {
-            echo json_encode(['success' => false, 'message' => 'Cannot select DB: ' . $this->conn->error]);
-            exit;
+            throw new \RuntimeException('Cannot select DB: ' . $this->conn->error);
         }
 
         $this->conn->set_charset('utf8mb4');

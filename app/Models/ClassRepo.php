@@ -14,12 +14,26 @@ use App\Core\Database;
    ============================================================ */
 class ClassRepo
 {
-    /* every class-scoped table (the snapshot included) */
-    private const SCOPED_TABLES = [
-        'grade_activities', 'grade_categories', 'grade_settings',
-        'grade_form_meta', 'grade_attendance_meta', 'grade_student_status',
-        'grade_roster_snapshot',
+    /* Tunay na datos ng guro — ito ang inililipat nang buo, at ito ang
+       ipinagbabawal na mabanggaan (may mawawala kung papatungan). */
+    private const DATA_TABLES = [
+        'grade_activities'      => 'activities',
+        'grade_categories'      => 'grading categories',
+        'grade_settings'        => 'grading settings',
+        'grade_form_meta'       => 'form column setup',
+        'grade_attendance_meta' => 'attendance setup',
+        'grade_student_status'  => 'student status overrides',
     ];
+
+    /* grade_roster_snapshot ay SADYANG hiwalay. Hindi ito tinipa ng guro —
+       kusang napupuno sa TUWING binubuksan ang isang tagged class (tingnan ang
+       RosterRepo::topUpSnapshot). Kaya kung isasama ito sa hadlang, hindi na
+       maire-retag ang isang klaseng nabuksan lang minsan; at kung basta itong
+       ili-lipat, babangga sa PK. Minementeha natin ito: INSERT IGNORE ang mga
+       row ng pinagmulan papunta sa target (nananaig ang naunang nakuha, kaya
+       hindi nawawala ang estudyanteng wala na sa live roster), tapos burahin
+       ang sa pinagmulan. Mabubuo muli naman ito sa susunod na pagbasa. */
+    private const SNAPSHOT_TABLE = 'grade_roster_snapshot';
 
     private Database $db;
     private int $ownerId;
@@ -65,18 +79,27 @@ class ClassRepo
         return $out;
     }
 
-    /* Does the target class already have manual activities? Used to refuse a
-       re-tag that would merge into / collide with an existing class. */
-    public function classHasActivities(string $section, string $sy, string $sem, string $subj): bool
+    /* Anong tunay na datos ang meron na ang target class? Nagbabalik ng mga
+       nababasang label (walang laman = ligtas i-retag).
+
+       Dating activities lang ang tinitingnan — pero anim na table ang inililipat,
+       kaya ang isang klaseng may settings/category/form setup pero walang activity
+       ay nakalulusot sa hadlang at bumabagsak sa hilaw na "Duplicate entry" mula
+       sa MySQL. Dito na nahuhuli, nang may maayos na mensahe. */
+    public function targetConflicts(string $section, string $sy, string $sem, string $subj): array
     {
         $admin = $this->ownerId;
-        $stmt = $this->db->prepare("SELECT id FROM grade_activities
-            WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=? LIMIT 1");
-        $stmt->bind_param('issss', $admin, $section, $sy, $sem, $subj);
-        $stmt->execute();
-        $has = $stmt->get_result()->num_rows > 0;
-        $stmt->close();
-        return $has;
+        $found = [];
+        foreach (self::DATA_TABLES as $t => $label) {
+            // $t ay galing sa fixed whitelist, hindi user input
+            $stmt = $this->db->prepare("SELECT 1 FROM `$t`
+                WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=? LIMIT 1");
+            $stmt->bind_param('issss', $admin, $section, $sy, $sem, $subj);
+            $stmt->execute();
+            if ($stmt->get_result()->num_rows > 0) $found[] = $label;
+            $stmt->close();
+        }
+        return $found;
     }
 
     /* Move every class-scoped row for (section, from-scope) → (to-scope) in one
@@ -89,7 +112,7 @@ class ClassRepo
         $conn->begin_transaction();
         try {
             $moved = 0;
-            foreach (self::SCOPED_TABLES as $t) {
+            foreach (array_keys(self::DATA_TABLES) as $t) {
                 // $t is from a fixed whitelist, not user input
                 $stmt = $conn->prepare("UPDATE `$t` SET school_year=?, semester=?, subject=?
                     WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?");
@@ -98,6 +121,27 @@ class ClassRepo
                 if ($t === 'grade_activities') $moved = $stmt->affected_rows;
                 $stmt->close();
             }
+
+            /* Roster snapshot — merge, hindi basta lipat (tingnan ang SNAPSHOT_TABLE).
+               Ang IGNORE ay nagpaparaya sa estudyanteng nasa magkabila: nananatili
+               ang naunang nakuhang pangalan sa target, at hindi bumabagsak ang
+               buong retag dahil lang nabuksan na minsan ang target. */
+            $t = self::SNAPSHOT_TABLE;
+            $ins = $conn->prepare(
+                "INSERT IGNORE INTO `$t` (owner_id, school_year, semester, section, subject, student_no, fullname, course)
+                 SELECT owner_id, ?, ?, ?, ?, student_no, fullname, course FROM `$t`
+                  WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?"
+            );
+            $ins->bind_param('ssssissss', $toSy, $toSem, $section, $toSubj, $admin, $section, $fromSy, $fromSem, $fromSubj);
+            $ins->execute();
+            $ins->close();
+
+            $del = $conn->prepare("DELETE FROM `$t`
+                WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?");
+            $del->bind_param('issss', $admin, $section, $fromSy, $fromSem, $fromSubj);
+            $del->execute();
+            $del->close();
+
             $conn->commit();
             return $moved;
         } catch (\Throwable $e) {

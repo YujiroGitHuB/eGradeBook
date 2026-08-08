@@ -57,6 +57,12 @@ class CategoryRepo
         $admin_id = $this->ownerId;
         $this->db->query("UPDATE grade_activities SET category_id=NULL WHERE category_id=$cid AND owner_id=$admin_id");
         $this->db->query("UPDATE grade_form_meta SET category_id=NULL WHERE category_id=$cid AND owner_id=$admin_id");
+        /* Ang attendance column ay may sariling category_id din. Kung hindi ito
+           lilinisin, mananatili itong tumuturo sa burado nang category — at dahil
+           ang termGrade() ay tumutugma lang sa mga umiiral na category, TAHIMIK
+           itong mawawala sa term grade (walang error, iba na ang final grade,
+           "cat?" lang ang makikita sa header). */
+        $this->db->query("UPDATE grade_attendance_meta SET category_id=NULL WHERE category_id=$cid AND owner_id=$admin_id");
         $this->db->query("DELETE FROM grade_categories WHERE id=$cid AND owner_id=$admin_id");
     }
 

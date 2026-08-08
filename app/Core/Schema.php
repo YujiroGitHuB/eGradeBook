@@ -5,13 +5,73 @@ namespace App\Core;
 /* ============================================================
    Schema — idempotent bootstrap of eGradeBook's OWN tables plus a
    series of inline migrations (checked via information_schema).
-   Runs on every request, gaya ng dati sa taas ng index.php. New
-   columns/tables get added HERE, not in a separate migration system.
-   Production tables already exist, so everything must be idempotent.
+   New columns/tables get added HERE, not in a separate migration
+   system. Production tables already exist, so everything must be
+   idempotent.
+
+   TUMATAKBO ITO SA BAWAT REQUEST — kasama ang bawat ?api= — kaya
+   naka-gate ito sa isang version marker. Ang buong trabaho ay mga
+   25 tawag ng colExists(), at ang bawat isa ay tumatanong sa
+   information_schema: ~10.8 ms kada isa sa MariaDB 10.4, o mga
+   285 ms kada request. Ibig sabihin, bawat pag-save ng score ay
+   nagbabayad ng 285 ms bago pa magsimula ang tunay na trabaho.
+
+   Ang marker ay ang FILEMTIME NG FILE NA ITO — hindi manu-manong
+   numero. Kaya sa oras na may mag-edit ng Schema.php, kusang
+   nawawalan ng bisa ang marker at muling tumatakbo ang migrations.
+   Walang dapat tandaang i-bump, kaya walang panganib na malimutan
+   (kapareho ng filemtime cache-busting ng CSS/JS ng app na ito).
    ============================================================ */
 class Schema
 {
+    private const VERSION_TABLE = 'grade_schema_version';
+
+    /* Ang bersyon ng schema = huling pagkakabago ng file na ito. */
+    private static function wantedVersion(): string
+    {
+        $t = @filemtime(__FILE__);
+        return $t ? (string)$t : 'unknown';
+    }
+
+    /* Nakatalang bersyon, o null kung wala pa ang table (unang takbo).
+       Sa PHP 8.1+ ay nag-e-exception ang mysqli sa palyadong query,
+       kaya kailangan ang catch para sa nawawalang table. */
+    private static function recordedVersion(Database $db): ?string
+    {
+        try {
+            $r = $db->conn->query("SELECT version FROM `" . self::VERSION_TABLE . "` WHERE lock_id=1");
+            if (!$r) return null;
+            $row = $r->fetch_assoc();
+            return $row ? (string)$row['version'] : null;
+        } catch (\Throwable $e) {
+            return null;   // wala pa ang table
+        }
+    }
+
+    /* Gate: laktawan ang lahat kung tugma ang naitalang bersyon.
+       Isang mabilis na SELECT (~0.2 ms) kapalit ng ~285 ms. */
     public static function migrate(Database $db): void
+    {
+        $want = self::wantedVersion();
+        if (self::recordedVersion($db) === $want) return;
+
+        self::runAll($db);
+
+        $conn = $db->conn;
+        $conn->query("CREATE TABLE IF NOT EXISTS `" . self::VERSION_TABLE . "` (
+            lock_id TINYINT NOT NULL PRIMARY KEY,
+            version VARCHAR(32) NOT NULL
+        )");
+        $stmt = $conn->prepare("INSERT INTO `" . self::VERSION_TABLE . "` (lock_id, version) VALUES (1, ?)
+            ON DUPLICATE KEY UPDATE version = VALUES(version)");
+        $stmt->bind_param('s', $want);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    /* Ang buong dating laman ng migrate(). Tumatakbo lang kapag
+       nagbago ang Schema.php (o sa kauna-unahang takbo). */
+    private static function runAll(Database $db): void
     {
         $conn = $db->conn;
 

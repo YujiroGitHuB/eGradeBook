@@ -63,7 +63,9 @@ class SectionController extends Controller
             (new PinnedRepo($this->db, $this->ownerId))->replaceAll($list);
             $this->ok(['count' => count($list)]);
         } catch (\Throwable $e) {
-            $this->fail('Could not save: ' . $e->getMessage());
+            /* detalye sa log, mababasang pangungusap sa guro */
+            error_log('eGradeBook savePinnedSections failed: ' . $e);
+            $this->fail('Could not save your sections. Please try again.');
         }
     }
 }
