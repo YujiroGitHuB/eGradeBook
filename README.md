@@ -181,10 +181,12 @@ assumptions, the grading math, and where new columns/actions go.
 - Grades are computed **client-side** in `grades.js`; the server stores raw scores.
 - Form responses and attendance scans are **read-only** here — fix them in the app
   that owns them.
-- FormFlow has no notion of a subject, so form columns are discovered per
-  **section** — every class of a section sees all of its forms. When a section
-  runs two subjects, hide the ones that don't belong with the 👁 button on the
-  column header; hiding is per class and keeps the form intact in FormFlow.
+- FormFlow has no notion of a subject and stamps a response only with its
+  **section**, so every class of a section sees all of its forms — and because
+  section names repeat each year, old forms keep coming back. Sort it out under
+  **More ▸ Form columns…**: assign a form to a subject (one time, applies to
+  future classes too) or hide it in just this class, optionally copying another
+  class's hidden list. Nothing is ever changed in FormFlow.
 - Bootstrap Icons, Google Fonts and SweetAlert2 load from CDN; the Excel (SheetJS)
   and PDF (jsPDF) libraries are fetched on demand only when you export. Exports
   need a connection.

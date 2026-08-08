@@ -46,6 +46,8 @@ class Router
         // unified columns (activities + forms + attendance)
         'reorder_columns'       => [ColumnController::class, 'reorder'],
         'set_form_meta'         => [ColumnController::class, 'setFormMeta'],
+        'set_form_subject'      => [ColumnController::class, 'setFormSubject'],
+        'copy_form_visibility'  => [ColumnController::class, 'copyFormVisibility'],
         // attendance overlay
         'set_attendance_enabled' => [AttendanceController::class, 'setEnabled'],
         'set_attendance_meta'   => [AttendanceController::class, 'setMeta'],

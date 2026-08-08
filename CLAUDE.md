@@ -49,18 +49,36 @@ attach eGradeBook-side grading metadata (`term`, `category_id`, `weight`,
 drag-reordered alongside manual activities. Keyed `(owner_id, section, form_id)`
 — plus `school_year, semester, subject` since class scoping (below).
 
-**`hidden` — the per-class escape hatch for FormFlow's missing subject.** FormFlow
+**Form-column scoping — the two levers for FormFlow's missing subject.** FormFlow
 has no `subject` column at all (not on `forms`, not on `form_responses`), so form
-columns can only be auto-discovered per **section**. When one section runs two
-subjects, every class of that section would otherwise show *all* of it forms — and
-count them toward the grade. There is no upstream data to filter on, so the fix is
-teacher-driven: `grade_form_meta.hidden = 1` drops the form from *this* class only.
-`SheetRepo::build()` reads the hidden set **before** building form columns, so a
-hidden form never becomes a column and its scores never enter the `scores` map
-(hence never the grade); the build returns the dropped ones as `hidden_forms`
-(`[{id,title}]`) so `grades.js` can offer restore chips under the column picker.
-Default `0` = visible, so existing sheets are unchanged. Toggled through the
-existing `set_form_meta` action (partial update — no new route).
+columns can only be auto-discovered per **section** — and since the discovery query
+has no date filter either, a reused section name (`BSIT-1A` exists every year) keeps
+dragging old school years' forms into new classes. Both would otherwise show up as
+columns *and count toward the grade*. There is no upstream data to filter on, so
+both fixes are teacher-driven and eGradeBook-side:
+
+1. **`grade_form_subject`** (`FormSubjectRepo`) — claims a form for one subject,
+   keyed `(owner_id, section, form_id)`. **Deliberately NOT class-scoped** (like
+   `grade_transmute` / `grade_pinned_sections`): one decision covers every class of
+   the section, *including classes created later* — that's the whole point. Empty
+   subject = unclaimed = visible everywhere.
+2. **`grade_form_meta.hidden`** — a per-class override for the leftovers (old terms,
+   one-offs). Must be repeated per class, which is what the `copy_form_visibility`
+   action is for: it merges another class's hidden set into this one (same section
+   only — forms are per-section). Merge, never mirror, so it is safe to re-run.
+
+`SheetRepo::build()` resolves both **before** building form columns: explicit
+`hidden = 1` wins, else a claim that disagrees with the class's subject hides it,
+else visible. A hidden form never becomes a column and its scores never enter the
+`scores` map (hence never the grade). **There is intentionally no "force show"** —
+a claim pointing elsewhere is corrected by editing the claim, not by overriding it,
+which is why `hidden` stayed `NOT NULL DEFAULT 0` instead of becoming tri-state.
+The legacy class (empty subject) is never affected by lever 1, so untagged sheets
+behave exactly as before. The build returns the dropped forms as `hidden_forms`
+(`[{id,title,subject,reason}]`, `reason` = `manual` | `subject`) and puts the claim
+on visible form columns as `owned_subject`, which drives the **Form columns modal**
+(More ▸ Form columns…) in `grades.js`. Actions: `set_form_meta` (partial update,
+carries `hidden`), plus `set_form_subject` and `copy_form_visibility`.
 Column ordering is now **unified** across activities + forms + the attendance
 column (all carry `sort_order`; the `reorder_columns` API and the `sheet`
 action's `uasort` keep them on one scale — `reorder_columns` special-cases the

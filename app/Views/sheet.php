@@ -89,6 +89,7 @@
                         <button class="profile-menu-item" id="btnCopyFrom" role="menuitem" title="Copy activity setup from another section"><i class="bi bi-copy"></i> Copy from…</button>
                         <button class="profile-menu-item" id="btnImport" role="menuitem"><i class="bi bi-upload"></i> Import CSV</button>
                         <button class="profile-menu-item" id="btnRetag" role="menuitem" title="Move the current sheet into a named class (school year / semester / subject)"><i class="bi bi-tag"></i> Tag as class…</button>
+                        <button class="profile-menu-item" id="btnFormCols" role="menuitem" title="Choose which of this section's FormFlow forms belong in this class"><i class="bi bi-ui-checks-grid"></i> Form columns…</button>
                         <div class="profile-menu-divider"></div>
                         <div class="gs-more-label">Grading</div>
                         <button class="profile-menu-item" id="btnTransmute" role="menuitem"><i class="bi bi-arrow-left-right"></i> Transmutation</button>
@@ -438,6 +439,41 @@
             <div class="modal-actions" style="margin-top:1.3rem;">
                 <button class="btn btn-ghost" id="retagCancel">Cancel</button>
                 <button class="btn btn-primary" id="retagApply"><i class="bi bi-tag"></i> Tag class</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Form Columns Modal — which of the section's FormFlow forms belong in this class.
+         FormFlow has no subject, so a section's forms are discovered into EVERY class of
+         that section (and never expire, since section names repeat each school year).
+         Two levers here: claim a form for one subject (once, applies to future classes
+         too), or hide it in just this class. -->
+    <div class="modal-backdrop" id="formColModal">
+        <div class="modal gs-maccent" style="max-width:640px;">
+            <div class="gs-mhead">
+                <div class="gs-mhead-ic"><i class="bi bi-ui-checks-grid"></i></div>
+                <div>
+                    <h3 class="gs-mtitle">Form columns in this class</h3>
+                    <p class="gs-msub">FormFlow only tags a response with its <b>section</b>, so every class of a section sees all of its forms. Pick which ones belong here.</p>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:.9rem;margin:1.1rem 0 0;">
+                <p class="bulk-note" id="fcTargetNote" style="margin:0;"></p>
+
+                <div class="gs-field">
+                    <label for="fcCopyFrom">Copy hidden forms from another class</label>
+                    <div class="imp-select-wrap">
+                        <select id="fcCopyFrom" class="imp-select"><option value="">— Select a class —</option></select>
+                        <i class="bi bi-chevron-down imp-select-chev"></i>
+                    </div>
+                    <p class="bulk-note" style="margin:.35rem 0 0;"><i class="bi bi-info-circle"></i> Adds that class's hidden forms here. Nothing is un-hidden, so it's safe to re-run — useful when a new term inherits years of old forms.</p>
+                </div>
+
+                <div id="fcList" class="fc-list"></div>
+                <p id="fcErr" class="bulk-err" style="display:none;"></p>
+            </div>
+            <div class="modal-actions" style="margin-top:1.3rem;">
+                <button class="btn btn-ghost" id="fcClose">Done</button>
             </div>
         </div>
     </div>

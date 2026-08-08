@@ -637,19 +637,19 @@ function renderColumnPicker() {
                     </label>`;
     }).join('');
 
-    /* Forms hidden in THIS class — click to bring one back. They are still
-       live in FormFlow and in the section's other classes; only this class
-       leaves them out of the sheet and the grade. */
+    /* Forms of this section left out of THIS class — they stay live in FormFlow
+       and in the section's other classes. One door into the modal, which scales
+       when years of old forms pile up on a reused section name. */
     if (hiddenForms.length) {
-        box.innerHTML += `<span class="gs-hidden-wrap" data-tip="Forms from this section that are hidden in this class. FormFlow has no subject, so every class of a section sees all of its forms — click to bring one back.">
-                    <span class="gs-hidden-lbl"><i class="bi bi-eye-slash"></i> Hidden here:</span>
-                    ${hiddenForms.map(f => `<button class="gs-tag gs-tag-hidden" data-fid="${f.id}" data-tip="Restore this form column">${escHtml(f.title)} <i class="bi bi-arrow-counterclockwise"></i></button>`).join('')}
+        box.innerHTML += `<span class="gs-hidden-wrap" data-tip="Forms from this section that are not part of this class. FormFlow has no subject, so every class of a section sees all of its forms.">
+                    <span class="gs-hidden-lbl"><i class="bi bi-eye-slash"></i> ${hiddenForms.length} form${hiddenForms.length > 1 ? 's' : ''} not in this class</span>
+                    <button class="gs-tag gs-tag-hidden" id="colTagsManage" data-tip="Choose which forms belong in this class">Manage <i class="bi bi-sliders"></i></button>
                 </span>`;
     }
 
     box.querySelectorAll('.gs-tag').forEach(tag => {
         const cb = tag.querySelector('input');
-        if (!cb) return;                       // restore chip, wired below
+        if (!cb) return;                       // the Manage button, wired below
         cb.addEventListener('change', e => {
             const key = tag.dataset.key;
             if (e.target.checked) {
@@ -662,9 +662,8 @@ function renderColumnPicker() {
             render();
         });
     });
-    box.querySelectorAll('.gs-tag-hidden').forEach(btn => {
-        btn.addEventListener('click', () => setFormHidden(parseInt(btn.dataset.fid), false));
-    });
+    const mng = $('colTagsManage');
+    if (mng) mng.addEventListener('click', openFormColModal);
 }
 
 /* get a student's record for a column */
@@ -1421,12 +1420,131 @@ async function onFormEdit(e) {
    (grade_form_meta.hidden, keyed per class): the form and its responses stay
    untouched in FormFlow, and your other classes are unaffected.
    Reloads the sheet because the set of columns changes. */
-async function setFormHidden(fid, hidden) {
+async function setFormHidden(fid, hidden, fromModal) {
     if (!SHEET || !fid) return;
     const d = await apiPost({ api: 'set_form_meta', section: SHEET.section, form_id: fid, hidden: hidden ? 1 : 0 });
     if (!d.success) { showToastSafe(d.message || 'Update failed', 'error'); return; }
     await loadSheet(SHEET.section);
+    if (fromModal) renderFormColList();
     showToastSafe(hidden ? 'Form hidden in this class.' : 'Form restored.', 'success');
+}
+
+/* ── Form columns modal ──────────────────────────────────
+   Two levers on the same problem — FormFlow tags a response only with its
+   SECTION, so a section's forms land in every class of that section, and
+   because section names repeat each school year they never age out:
+     • Subject   — claim a form for one subject. One decision, and it applies
+                   to every class of the section, including ones made later.
+     • Hide here — a per-class override for the leftovers (old terms, one-offs).
+   A claim only takes effect in classes that HAVE a subject; the legacy
+   (untagged) sheet keeps seeing everything, as it always did. */
+let FC_SUBJECTS = [];
+
+async function openFormColModal() {
+    if (!SHEET) { showToastSafe('Select a section first.', 'error'); return; }
+    $('fcErr').style.display = 'none';
+    $('fcTargetNote').innerHTML = `<i class="bi bi-info-circle"></i> This class: <b>${escHtml(classLabel(CLASS))}</b> · section <b>${escHtml(SHEET.section)}</b>`;
+
+    /* copy source = another class of the SAME section (forms are per-section,
+       so classes of other sections share no forms) */
+    const others = CLASSES.filter(c => classKey(c) !== classKey(CLASS));
+    const sel = $('fcCopyFrom');
+    sel.innerHTML = others.length
+        ? `<option value="">— Select a class —</option>` + others.map(c => `<option value="${escAttr(classKey(c))}">${escHtml(classLabel(c))}</option>`).join('')
+        : `<option value="">No other class in this section yet</option>`;
+    sel.disabled = !others.length;
+
+    /* subject suggestions: the section's QR subjects + subjects already used by
+       this section's classes + whatever the forms are already claimed by */
+    const d = await apiGet({ api: 'subjects', section: SHEET.section });
+    const set = new Set((d && d.success && Array.isArray(d.subjects)) ? d.subjects : []);
+    CLASSES.forEach(c => { if (c.subject) set.add(c.subject); });
+    fcAllForms().forEach(f => { if (f.owned_subject) set.add(f.owned_subject); });
+    if (CLASS.subject) set.add(CLASS.subject);
+    FC_SUBJECTS = [...set].sort((a, b) => a.localeCompare(b));
+
+    renderFormColList();
+    $('formColModal').classList.add('show');
+}
+
+function closeFormColModal() { $('formColModal').classList.remove('show'); }
+
+/* Every form of this section: the ones showing as columns + the ones left out. */
+function fcAllForms() {
+    if (!SHEET) return [];
+    const shown = SHEET.columns.filter(c => c.type === 'form')
+        .map(c => ({ id: c.id, title: c.title, owned_subject: c.owned_subject || '', reason: '' }));
+    const hidden = (SHEET.hidden_forms || [])
+        .map(f => ({ id: f.id, title: f.title, owned_subject: f.subject || '', reason: f.reason || 'manual' }));
+    return [...shown, ...hidden].sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function renderFormColList() {
+    const forms = fcAllForms();
+    const box = $('fcList');
+    if (!forms.length) {
+        box.innerHTML = `<div class="bulk-note" style="padding:.4rem 0;">This section has no FormFlow forms yet.</div>`;
+        return;
+    }
+    box.innerHTML = forms.map(f => {
+        const opts = `<option value="">— any subject —</option>` + FC_SUBJECTS.map(s =>
+            `<option value="${escAttr(s)}" ${s === f.owned_subject ? 'selected' : ''}>${escHtml(s)}</option>`).join('');
+        /* A subject-claimed form can't be force-shown in a class it doesn't
+           belong to — changing the claim is the coherent way out, so we say so
+           instead of offering a button that would fight the claim. */
+        const state = f.reason === 'subject'
+            ? `<span class="fc-state fc-off" title="Hidden because it belongs to another subject">belongs to ${escHtml(f.owned_subject)}</span>`
+            : f.reason === 'manual'
+                ? `<button class="fc-btn" data-show="${f.id}" data-tip="Bring this form back into this class"><i class="bi bi-eye"></i> Show</button>`
+                : `<button class="fc-btn" data-hide="${f.id}" data-tip="Hide this form in this class only"><i class="bi bi-eye-slash"></i> Hide</button>`;
+        return `<div class="fc-row ${f.reason ? 'is-off' : ''}">
+                    <span class="fc-title"><i class="bi bi-ui-checks-grid frm-ic"></i>${escHtml(f.title)}</span>
+                    <select class="fc-subj" data-fid="${f.id}" data-tip="Which subject owns this form? Applies to every class of this section, now and later.">${opts}</select>
+                    ${state}
+                </div>`;
+    }).join('');
+
+    box.querySelectorAll('.fc-subj').forEach(s =>
+        s.addEventListener('change', () => setFormSubject(parseInt(s.dataset.fid), s.value)));
+    box.querySelectorAll('[data-hide]').forEach(b =>
+        b.addEventListener('click', () => setFormHidden(parseInt(b.dataset.hide), true, true)));
+    box.querySelectorAll('[data-show]').forEach(b =>
+        b.addEventListener('click', () => setFormHidden(parseInt(b.dataset.show), false, true)));
+}
+
+/* Claim a form for a subject (or clear the claim with an empty value). */
+async function setFormSubject(fid, subject) {
+    if (!SHEET || !fid) return;
+    const d = await apiPost({ api: 'set_form_subject', section: SHEET.section, form_id: fid, owned_subject: subject });
+    if (!d.success) { showToastSafe(d.message || 'Update failed', 'error'); return; }
+    await loadSheet(SHEET.section);
+    renderFormColList();
+    showToastSafe(subject ? `Form assigned to ${subject}.` : 'Form no longer tied to a subject.', 'success');
+}
+
+/* Pull another class's hidden forms into this one (merge — nothing is un-hidden). */
+async function applyCopyFormVisibility() {
+    const v = $('fcCopyFrom').value;
+    if (!v || !SHEET) return;
+    const src = CLASSES.find(c => classKey(c) === v);
+    if (!src) return;
+    const d = await apiPost({
+        api: 'copy_form_visibility',
+        section: SHEET.section,
+        from_school_year: src.school_year,
+        from_semester: src.semester,
+        from_subject: src.subject,
+    });
+    if (!d.success) {
+        $('fcErr').textContent = d.message || 'Copy failed';
+        $('fcErr').style.display = '';
+        return;
+    }
+    $('fcErr').style.display = 'none';
+    $('fcCopyFrom').value = '';
+    await loadSheet(SHEET.section);
+    renderFormColList();
+    showToastSafe(`Copied ${d.copied || 0} hidden form${(d.copied || 0) === 1 ? '' : 's'} from ${classLabel(src)}.`, 'success');
 }
 
 /* ── Save the attendance-column overlay (term / category / weight) ──
@@ -3091,6 +3209,10 @@ $('copyApply').addEventListener('click', applyCopy);
 $('copyFromSection').addEventListener('change', () => {
     $('copyApply').disabled = !$('copyFromSection').value;
 });
+/* ── Form columns modal ─────────────────────────────────── */
+$('btnFormCols').addEventListener('click', openFormColModal);
+$('fcClose').addEventListener('click', closeFormColModal);
+$('fcCopyFrom').addEventListener('change', applyCopyFormVisibility);
 /* ── Pinned sections wiring ─────────────────────────────── */
 $('pinViewToggle').addEventListener('click', toggleSectionView);
 $('btnManageSections').addEventListener('click', openPinModal);

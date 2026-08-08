@@ -96,4 +96,42 @@ class FormMetaRepo
         $u->execute();
         $u->close();
     }
+
+    /* Dalhin sa klaseng ito ang mga nakatagong form ng ibang klase sa PAREHONG
+       section. Ito ang lunas sa pag-ipon: walang date filter ang pagtuklas ng
+       forms (per-section lang), kaya ang mga form ng nakaraang taon ay lumalabas
+       pa rin sa bagong klase ng kaparehong pangalan ng section. Sa halip na
+       itago ulit isa-isa, kinokopya ang naunang klase.
+
+       MERGE ang gawi, hindi mirror: ang hidden=1 lang ang dinadala, kaya walang
+       biglang lumalabas na form na tahasan mong itinago rito. Ligtas ulitin. */
+    public function copyHiddenFrom(ClassScope $to, string $fromSy, string $fromSem, string $fromSubj): int
+    {
+        $admin_id = $this->ownerId;
+        $sec = $to->section;
+        $sy  = $to->schoolYear;
+        $sem = $to->semester;
+        $sub = $to->subject;
+        $stmt = $this->db->prepare(
+            "INSERT INTO grade_form_meta (owner_id, section, form_id, school_year, semester, subject, hidden)
+             SELECT owner_id, section, form_id, ?, ?, ?, 1
+               FROM grade_form_meta
+              WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=? AND hidden=1
+             ON DUPLICATE KEY UPDATE hidden = 1"
+        );
+        $stmt->bind_param('sssissss', $sy, $sem, $sub, $admin_id, $sec, $fromSy, $fromSem, $fromSubj);
+        $stmt->execute();
+        $stmt->close();
+
+        /* Hiwalay na bilangin ang pinagkunan: ang affected_rows ng INSERT..ON
+           DUPLICATE ay 1 kada bagong row pero 2 kada na-update, kaya hindi ito
+           mapagkakatiwalaang bilang ng form. */
+        $cnt = $this->db->prepare("SELECT COUNT(*) n FROM grade_form_meta
+            WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=? AND hidden=1");
+        $cnt->bind_param('issss', $admin_id, $sec, $fromSy, $fromSem, $fromSubj);
+        $cnt->execute();
+        $n = (int)($cnt->get_result()->fetch_assoc()['n'] ?? 0);
+        $cnt->close();
+        return $n;
+    }
 }

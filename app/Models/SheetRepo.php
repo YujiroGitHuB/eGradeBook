@@ -62,7 +62,16 @@ class SheetRepo
            section, lalabas ang LAHAT ng form nito sa bawat klase. Ang panlunas ay
            ang per-class na `hidden` flag sa grade_form_meta: itinatago ng guro ang
            form na hindi kabilang sa klaseng ito, at hindi na ito nagiging column
-           (kaya hindi rin papasok sa coursework). Hindi ito binubura sa FormFlow. */
+           (kaya hindi rin papasok sa coursework). Hindi ito binubura sa FormFlow.
+
+           DALAWANG ANTAS ang pagtatago, at ganito ang pagkakasunod:
+             1. grade_form_subject — inaangkin ang form ng ISANG subject; awtomatiko
+                itong nakatago sa lahat ng klaseng iba ang subject, PATI sa mga
+                klaseng gagawin pa lang (minsanang desisyon).
+             2. grade_form_meta.hidden — per-klaseng override; laging nananaig,
+                kapwa sa pagtatago at sa pagpapakita.
+           Ang legacy class (blangkong subject) ay hindi kailanman naaapektuhan ng
+           antas 1 — nakikita nito ang lahat maliban sa tahasang itinago. */
         $hiddenIds = [];
         $hStmt = $conn->prepare(
             "SELECT form_id FROM grade_form_meta
@@ -86,14 +95,31 @@ class SheetRepo
              )
              ORDER BY f.created_at ASC"
         );
+        /* Antas 1: kanino inaangkin ang bawat form ng section (minsanang desisyon,
+           hindi class-scoped kaya tumatalab din sa mga susunod na klase). */
+        $claim = (new FormSubjectRepo($this->db, $this->ownerId))->mapForSection($section);
+
         $formMap = [];   // form_id => index in $columns
         $formIds = [];
-        $hiddenForms = [];   // {id,title} ng mga nakatago — para may maibalik ang UI
+        $hiddenForms = [];   // {id,title,subject,reason} — para may maipakita't maibalik ang UI
         while ($f = $fres->fetch_assoc()) {
-            /* Nakatago sa klaseng ito — hindi na ginagawang column, pero ipinapasa
-               pa rin sa client para may makita't maibalik ng guro. */
-            if (isset($hiddenIds[(int)$f['id']])) {
-                $hiddenForms[] = ['id' => (int)$f['id'], 'title' => $f['title']];
+            $fid   = (int)$f['id'];
+            $owned = $claim[$fid] ?? '';
+            /* Tahasang itinago sa klaseng ito ang laging nananaig. Kung hindi, ang
+               pag-angkin ang magpapasya — pero ang legacy class (blangkong subject)
+               ay hindi kailanman apektado nito, kaya buo ang dating gawi. */
+            $reason = '';
+            if (isset($hiddenIds[$fid]))                                    $reason = 'manual';
+            elseif ($owned !== '' && $subj !== '' && $owned !== $subj)      $reason = 'subject';
+            /* Nakatago — hindi na ginagawang column (kaya hindi papasok sa grado),
+               pero ipinapasa pa rin sa client para may makita't maibalik ang guro. */
+            if ($reason !== '') {
+                $hiddenForms[] = [
+                    'id'      => $fid,
+                    'title'   => $f['title'],
+                    'subject' => $owned,
+                    'reason'  => $reason,
+                ];
                 continue;
             }
             $key = 'f' . $f['id'];
@@ -104,6 +130,8 @@ class SheetRepo
                 'title'       => $f['title'],
                 'max'         => 0,
                 'responded'   => 0,
+                /* subject na nag-aangkin sa form na ito ('' = walang nag-aangkin) */
+                'owned_subject' => $owned,
                 /* eGradeBook-side overlay (grade_form_meta) — defaults;
                    filled in below once the roster/activities are loaded */
                 'weight'      => 0.0,

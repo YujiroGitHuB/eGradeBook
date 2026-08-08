@@ -210,6 +210,22 @@ class Schema
             $conn->query("ALTER TABLE grade_form_meta ADD COLUMN hidden TINYINT(1) NOT NULL DEFAULT 0");
         }
 
+        /* Pag-aangkin ng isang form sa ISANG subject — minsanan lang, pang-habambuhay.
+           Kapasares ng `hidden` sa itaas: ang `hidden` ay per-klase (kailangang ulitin
+           kada bagong semestre/taon), samantalang ito ay per (owner, section, form) —
+           kaya awtomatiko nang nakatago ang form sa LAHAT ng klase ng section na iba
+           ang subject, kasama ang mga klaseng gagawin pa lang. SADYANG hindi
+           class-scoped, gaya ng grade_transmute at grade_pinned_sections.
+           Blangkong subject = hindi inaangkin = lumalabas kahit saan (dating gawi).
+           Ang per-klaseng `hidden` ay laging nananaig bilang override. */
+        $conn->query("CREATE TABLE IF NOT EXISTS grade_form_subject (
+            owner_id INT NOT NULL,
+            section  VARCHAR(20) NOT NULL,
+            form_id  INT NOT NULL,
+            subject  VARCHAR(120) NOT NULL DEFAULT '',
+            PRIMARY KEY (owner_id, section, form_id)
+        )");
+
         /* Roster snapshot (Phase 3) — freezes (student_no, fullname, course) per
            NON-legacy class so a class's students never disappear if the upstream
            roster (ATTENDANCE_DB.students_tbl) later changes. Topped up from the
