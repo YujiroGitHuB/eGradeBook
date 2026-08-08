@@ -323,8 +323,13 @@ main {
     background: var(--surface);
 }
 
-.fc-row.is-off {
-    opacity: .62;
+/* Dinidimman ang pamagat at ang subject picker LAMANG — hindi ang buong row.
+   Ang opacity sa magulang ay gumagawa ng bagong stacking context, kaya hindi na
+   ito mababawi ng anak: nadadamay ang "Show" button at mukha itong disabled
+   gayong iyon mismo ang dapat pindutin. */
+.fc-row.is-off .fc-title,
+.fc-row.is-off .fc-subj {
+    opacity: .55;
 }
 
 .fc-title {

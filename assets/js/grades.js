@@ -3072,8 +3072,15 @@ async function applyRetag() {
         return show('That is the same as the current class.');
     const btn = $('retagApply');
     btn.disabled = true;
-    /* the SOURCE (current class) rides along via apiPost's scope injection */
-    const d = await apiPost({ api: 'retag_class', to_school_year: toSy, to_semester: toSem, to_subject: toSubj });
+    /* Ang SOURCE ay ang kasalukuyang klase. Ang school_year/semester/subject
+       nito ay isinasama ng classParams() ng apiPost — pero HINDI ang `section`,
+       kaya kailangang tahasang ipadala. Kung wala ito, "No section." ang laging
+       isinasagot ng server at hindi kailanman natutuloy ang pag-tag. */
+    const d = await apiPost({
+        api: 'retag_class',
+        section: SHEET.section,
+        to_school_year: toSy, to_semester: toSem, to_subject: toSubj,
+    });
     btn.disabled = false;
     if (!d.success) return show(d.message || 'Could not tag.');
     closeRetag();
@@ -3084,6 +3091,10 @@ async function applyRetag() {
     if ($('selSemester')) $('selSemester').value = toSem;
     if ($('selSubject')) $('selSubject').value = toSubj;
     showToastSafe(`Tagged as ${[toSy, toSem, toSubj].filter(Boolean).join(' · ')} — ${d.moved} activit${d.moved === 1 ? 'y' : 'ies'} moved.`, 'success');
+    /* Muling buuin ang Class dropdown bago mag-load: bago pa lang ang klaseng ito,
+       kaya wala pa ito sa listahan. Kung hindi, mananatiling "Existing (untagged)
+       sheet" ang nakasulat gayong ang tinitingnan mo na ay ang bagong klase. */
+    await loadClasses(SHEET.section);
     loadSheet(SHEET.section);
 }
 
