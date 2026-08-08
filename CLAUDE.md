@@ -109,7 +109,18 @@ via `UserRepo`, called from `login.php`) queries FormFlow's table directly via
 
 ## Auth & access model
 
-- `inc/auth.php` gates every page (redirects to `login.php` if no session).
+- **`App\Core\Auth` is the only session gate.** `Auth::start()` sets the cookie
+  flags (`SameSite=Strict`, `HttpOnly`, `Secure` under HTTPS) and
+  `use_strict_mode` *before* `session_start()`, so it must stay the single place
+  a session is opened — never call `session_start()` elsewhere. SameSite is what
+  stands in for CSRF tokens: there are none, and every `?api=` write trusts the
+  session cookie alone. (Split FormFlow and eGradeBook across *different domains*
+  and this must drop to `Lax`, or navigation between them breaks; on one host the
+  two are same-site and Strict costs nothing.) `inc/auth.php` is a legacy shim
+  that now just delegates here — nothing includes it.
+- Post-login redirect goes through `AuthController::safeNext()`. The old
+  `strpos($next,'http')===0` check missed `//evil.com` and `/\evil.com`, which
+  browsers treat as another site — an open redirect through `login.php?next=`.
 - `index.php` additionally requires **`$_SESSION['admin_role'] === 'superadmin'`**
   (set from FormFlow's `admin_users.role` at login) — non-superadmins get a 403 for
   both page loads and API calls. Treat eGradeBook as superadmin-only.
@@ -134,6 +145,15 @@ scope columns — the **legacy class** — so old sheets keep working unchanged.
   `grade_pinned_sections` (a section-picker convenience) are intentionally NOT
   class-scoped.** Scores hang off `activity_id`, so they inherit scope. The
   attendance auto column also filters scans by `subject` when the class has one.
+- **One roster source for both reading and writing.** A non-legacy class renders
+  from `grade_roster_snapshot`, so anything that *writes* scores across a roster
+  must read the same list — use `RosterRepo::studentNosForClass()`, never the
+  section-wide `studentNos()`. Bulk fill and CSV import used the latter and so
+  silently skipped students who had left `students_tbl` but were still on the
+  sheet (exactly the case the snapshot exists for). They now resolve the class
+  from the **activity's own row** (`ActivityRepo::sectionAndMax()` returns the
+  scope, `scopeOf()` wraps it) rather than from the request, so the two can't
+  disagree.
 - The section's classes are picked from a **Class dropdown** (`selClass`) fed by
   the `classes` action; "➕ New class…" reveals an inline create form
   (`create_class`). Classes live in a `grade_classes` registry (`ClassRepo`),
@@ -231,6 +251,15 @@ object, and computes grades client-side. Grading logic to preserve when editing:
   categories), toggled by `term_mode` in `grade_settings`.
 - **Status overrides** (INC/DRP/W) are an overlay in `grade_student_status`; they
   never modify scores.
+- **Both grading modes obey the same two controls** — the column picker
+  (`selectedCols`) and the "Missing = 0" checkbox. `termGrade()` used to read
+  every column and always count an unscored one as 0, so in term mode both
+  controls were visible but inert: unchecking a column removed it from the table
+  yet left it in the grade. The two breakdown renderers (on-screen modal and PDF)
+  filter identically, so what is shown always adds up to what was computed —
+  the on-screen one also silently omitted `attendance` while counting it.
+  A category whose columns are all unchecked contributes 0% at full weight,
+  matching how a category with no activities has always behaved.
 
 `global.js` provides shared UI helpers (`showToast`, `escHtml`, theme toggle —
 theme persisted in `localStorage` under `ff_theme`, shared with FormFlow).

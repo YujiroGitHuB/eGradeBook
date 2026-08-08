@@ -116,7 +116,26 @@ class RosterRepo
         return $students;
     }
 
-    /* Just the student numbers in a section (bulk fill / CSV import). */
+    /* Ang student numbers ng isang KLASE — ito ang dapat gamitin ng bulk fill at
+       CSV import, hindi ang studentNos() sa ibaba.
+
+       Bakit: ang sheet ay ginuguhit mula sa snapshot para sa hindi-legacy na klase,
+       samantalang ang studentNos() ay live roster ayon sa section. Kapag natanggal
+       ang estudyante sa students_tbl — na siya mismong dahilan kung bakit may
+       snapshot — mananatili siyang nakikita sa sheet pero LALAKTAWAN ng bulk fill,
+       at bibilangin siyang "unmatched" ng import. Tahimik na nawawalan ng grado.
+       Kailangang iisa ang pinagmumulan ng roster para sa pagguhit at pagsulat. */
+    public function studentNosForClass(ClassScope $c, int $ownerId): array
+    {
+        if ($c->schoolYear === '' && $c->semester === '' && $c->subject === '') {
+            return $this->studentNos($c->section);
+        }
+        $this->topUpSnapshot($c, $ownerId);
+        return array_column($this->snapshotRoster($c, $ownerId), 'student_no');
+    }
+
+    /* Just the student numbers in a section — LIVE roster. Legacy/section-wide
+       callers only; para sa isang klase gamitin ang studentNosForClass(). */
     public function studentNos(string $section): array
     {
         $stmt = $this->db->prepare(

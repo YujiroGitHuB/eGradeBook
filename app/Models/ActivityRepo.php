@@ -58,11 +58,29 @@ class ActivityRepo
         return (int)($row['max_points'] ?? 100);
     }
 
-    /* section + max_points, or null if the activity is gone (bulk fill / import). */
+    /* section + max_points + ang KLASE ng activity, o null kung wala na ito
+       (bulk fill / import). Kasama ang scope para makuha ng mga tumatawag ang
+       tamang roster — ang klase mismo ng activity ang sinusunod, hindi ang
+       ipinadalang scope ng request, kaya hindi sila puwedeng magkaiba. */
     public function sectionAndMax(int $aid): ?array
     {
-        $row = $this->db->query("SELECT section, max_points FROM grade_activities WHERE id=$aid")->fetch_assoc();
+        $admin_id = $this->ownerId;
+        $row = $this->db->query(
+            "SELECT section, max_points, school_year, semester, subject
+             FROM grade_activities WHERE id=$aid AND owner_id=$admin_id"
+        )->fetch_assoc();
         return $row ?: null;
+    }
+
+    /* Ang klase ng activity bilang ClassScope — para sa roster lookups. */
+    public function scopeOf(array $row): ClassScope
+    {
+        return new ClassScope(
+            (string)($row['school_year'] ?? ''),
+            (string)($row['semester'] ?? ''),
+            (string)($row['section'] ?? ''),
+            (string)($row['subject'] ?? '')
+        );
     }
 
     public function add(ClassScope $scope, string $title, int $maxPts, string $term, ?int $catId): int

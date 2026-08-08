@@ -172,7 +172,6 @@ class ActivityController extends Controller
             $this->fail('Activity not found.');
             return;
         }
-        $bSection = $act['section'];
         $bMax     = (int)$act['max_points'];
         $scoreRepo = new ScoreRepo($this->db);
 
@@ -185,8 +184,10 @@ class ActivityController extends Controller
 
         $bScore = max(0, min($bMax, intval($raw)));
 
-        /* roster of the activity's section */
-        $snos = (new RosterRepo($this->db))->studentNos($bSection);
+        /* Roster ng KLASE ng activity — kapareho ng iginuhit sa sheet. Ang dating
+           per-section na live roster ay tahimik na lumalaktaw sa estudyanteng nasa
+           snapshot na lang (tanggal na sa students_tbl pero nasa sheet pa rin). */
+        $snos = (new RosterRepo($this->db))->studentNosForClass($repo->scopeOf($act), $this->ownerId);
         if (!$snos) {
             $this->ok(['applied' => 0, 'score' => $bScore]);
             return;
@@ -230,7 +231,6 @@ class ActivityController extends Controller
             $this->fail('Activity not found.');
             return;
         }
-        $iSection = $act['section'];
         $iMax     = (int)$act['max_points'];
 
         $map = json_decode($_POST['scores'] ?? '{}', true);
@@ -242,9 +242,10 @@ class ActivityController extends Controller
         /* overwrite existing scores? default = true (from the Import modal checkbox) */
         $overwrite = !isset($_POST['overwrite']) || $_POST['overwrite'] === '1' || $_POST['overwrite'] === 'true';
 
-        /* roster of the section */
+        /* Roster ng KLASE ng activity — kapareho ng iginuhit sa sheet, kaya hindi
+           nabibilang na "unmatched" ang estudyanteng nasa snapshot na lang. */
         $roster = [];
-        foreach ((new RosterRepo($this->db))->studentNos($iSection) as $rn) $roster[(string)$rn] = true;
+        foreach ((new RosterRepo($this->db))->studentNosForClass($repo->scopeOf($act), $this->ownerId) as $rn) $roster[(string)$rn] = true;
 
         /* those that already have scores (for empty-only mode) */
         $scoreRepo = new ScoreRepo($this->db);

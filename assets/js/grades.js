@@ -140,19 +140,25 @@ function transmuteExcel(score) {
     return null;   // below the lowest band → Failed
 }
 
-/* Grade of a term (0–100) = Σ (categoryPct × weight) ÷ Σweight × 100 */
+/* Grade of a term (0–100) = Σ (categoryPct × weight) ÷ Σweight × 100
+   Sinusunod nito ang PAREHONG dalawang kontrol na sinusunod ng courseworkGrade:
+   ang column picker (selectedCols) at ang "Missing = 0". Dati ay binabasa nito
+   ang lahat ng column at laging binibilang na 0 ang walang score — kaya sa term
+   mode ay nakikita't naka-click ang dalawang kontrol pero walang epekto sa grado
+   (nawawala lang sa talahanayan ang column, bilang pa rin ito). */
 function termGrade(s, term) {
     const cats = (SHEET.categories || []).filter(c => c.term === term);
     if (!cats.length) return null;
+    const missingZero = $('chkMissingZero') ? $('chkMissingZero').checked : false;
     let totalW = 0, acc = 0, anyScore = false;
     cats.forEach(cat => {
         /* activities, form columns AND the attendance column assigned to this term + category */
-        const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form' || c.type === 'attendance') && c.term === term && c.category_id === cat.id);
+        const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form' || c.type === 'attendance') && selectedCols.has(c.key) && c.term === term && c.category_id === cat.id);
         let raw = 0, mx = 0;
         acts.forEach(a => {
             const rec = getRec(s.student_no, a.key);
-            mx += a.max || 0;
-            if (rec) { raw += Number(rec.score) || 0; anyScore = true; }
+            if (rec) { raw += Number(rec.score) || 0; mx += a.max || 0; anyScore = true; }
+            else if (missingZero) mx += a.max || 0;
         });
         const catPct = mx > 0 ? (raw / mx) : 0;     // 0..1
         acc += catPct * (Number(cat.weight) || 0);
@@ -2803,7 +2809,9 @@ async function exportStudentPDF() {
             put(tLabel, left, { bold: true, size: 12 });
             put(tg ? tg.grade.toFixed(1) : '—', right, { bold: true, size: 12, color: [37, 99, 235], align: 'right' }); nl(18);
             cats.forEach(cat => {
-                const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form' || c.type === 'attendance') && c.term === tKey && c.category_id === cat.id);
+                /* kaparehong salaan ng termGrade — dapat ipakita ng breakdown ang
+                   mismong mga column na binilang sa grado sa itaas nito */
+                const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form' || c.type === 'attendance') && selectedCols.has(c.key) && c.term === tKey && c.category_id === cat.id);
                 let raw = 0, mx = 0;
                 acts.forEach(a => { const rec = getRec(s.student_no, a.key); mx += a.max || 0; if (rec) raw += Number(rec.score) || 0; });
                 const catPct = mx > 0 ? raw / mx * 100 : 0;
@@ -2932,7 +2940,10 @@ function buildBreakdownTerm(s) {
         html += `<div class="bd-term">
             <div class="bd-term-head"><span>${tLabel}</span><span class="bd-term-grade">${tg ? tg.grade.toFixed(1) : '—'}</span></div>`;
         cats.forEach(cat => {
-            const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form') && c.term === tKey && c.category_id === cat.id);
+            /* kaparehong salaan ng termGrade. Dating kulang dito ang 'attendance',
+               kaya bumibilang ito sa term grade pero hindi lumalabas sa breakdown —
+               mukhang mali ang matematika kahit tama naman. */
+            const acts = SHEET.columns.filter(c => (c.type === 'activity' || c.type === 'form' || c.type === 'attendance') && selectedCols.has(c.key) && c.term === tKey && c.category_id === cat.id);
             let raw = 0, mx = 0, rows = '';
             acts.forEach(a => {
                 const rec = getRec(s.student_no, a.key);

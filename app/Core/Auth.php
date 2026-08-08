@@ -9,9 +9,37 @@ namespace App\Core;
    ============================================================ */
 class Auth
 {
+    /* Simulan ang session na may pinatibay na cookie. Dapat MAUNA ito sa
+       session_start(), dahil doon pa lang ipinapalabas ang cookie.
+
+       Bakit SameSite: bawat `?api=` na nagsusulat ay session cookie lang ang
+       pinagbabatayan — walang CSRF token kahit saan. Ang `Strict` ang humaharang
+       sa cross-site na POST, kaya hindi na mapapakilos ng ibang site ang browser
+       mo para magsulat dito. Naka-`Lax` na ang default ng mga bagong browser,
+       pero default iyon ng browser at hindi pahayag ng app — ito ang nagpapahayag.
+       (Kung sakaling ilagay sa MAGKAIBANG domain ang FormFlow at eGradeBook,
+       gawing 'Lax' ito para hindi maputol ang paglipat mula sa isa papunta sa isa;
+       sa iisang host — gaya ng XAMPP — walang epekto ang pagkakaiba.)
+
+       use_strict_mode = huwag tanggapin ang session id na hindi galing dito
+       (panangga sa session fixation, kapares ng session_regenerate_id sa login). */
     public static function start(): void
     {
-        if (session_status() === PHP_SESSION_NONE) session_start();
+        if (session_status() !== PHP_SESSION_NONE) return;
+
+        $p = session_get_cookie_params();
+        session_set_cookie_params([
+            'lifetime' => $p['lifetime'],
+            /* pinapanatili ang path/domain na naka-configure na — ang pagpapalit
+               nito ay puwedeng bumangga sa session cookie ng FormFlow sa iisang host */
+            'path'     => $p['path'],
+            'domain'   => $p['domain'],
+            'secure'   => (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off'),
+            'httponly' => true,
+            'samesite' => 'Strict',
+        ]);
+        ini_set('session.use_strict_mode', '1');
+        session_start();
     }
 
     /* Redirect to login if there is no session (gates every page). */
