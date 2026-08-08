@@ -38,6 +38,37 @@ class ClassController extends Controller
         $this->ok(['class' => ['school_year' => $scope->schoolYear, 'semester' => $scope->semester, 'subject' => $scope->subject]]);
     }
 
+    /* Burahin ang klaseng WALANG laman (ang scope ng request ang klase).
+       Sadyang hindi ito makakabura ng grado: kung may anumang datos ang klase,
+       tumatanggi ito at pinapangalanan kung ano — ang guro mismo ang maglilipat
+       o magbubura niyon. Ang tanging naaalis ay ang pangalan sa dropdown at ang
+       kusang-nabuong roster snapshot. */
+    public function delete(): void
+    {
+        $scope = $this->classScope();
+        if (!$scope->hasSection()) {
+            $this->fail('No section.');
+            return;
+        }
+        /* Ang legacy (untagged) sheet ay hindi isang pangalang klase — wala ito sa
+           registry, at ang "pagbura" nito ay mangangahulugan ng pagbura ng buong
+           dating gradebook. Hindi ito ang trabaho ng aksyong ito. */
+        if ($scope->schoolYear === '' && $scope->semester === '' && $scope->subject === '') {
+            $this->fail('The untagged sheet is not a named class, so there is nothing to delete.');
+            return;
+        }
+
+        $repo = new ClassRepo($this->db, $this->ownerId);
+        $conflicts = $repo->targetConflicts($scope->section, $scope->schoolYear, $scope->semester, $scope->subject);
+        if ($conflicts) {
+            $this->fail('This class still has ' . implode(', ', $conflicts) . '. Move or delete them first.');
+            return;
+        }
+
+        $repo->deleteEmpty($scope->section, $scope->schoolYear, $scope->semester, $scope->subject);
+        $this->ok();
+    }
+
     public function retag(): void
     {
         $source = $this->classScope();                 // current view = what we're tagging

@@ -166,6 +166,10 @@
                         style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:.5rem .6rem;font-size:.85rem;outline:none;min-width:220px;">
                         <option value="__legacy__">Existing (untagged) sheet</option>
                     </select>
+                    <!-- Delete a named class. Only ever removes an EMPTY class (the
+                         server refuses if it still holds anything), so it can never
+                         take grades with it. Hidden for the untagged sheet. -->
+                    <button type="button" id="btnDeleteClass" class="cls-del" title="Delete this class (only if it's empty)" style="display:none;"><i class="bi bi-trash"></i></button>
                 </div>
                 <!-- New-class inline form (revealed when "New class…" is picked) -->
                 <div id="newClassForm" style="display:none;gap:.4rem;flex-wrap:wrap;align-items:center;margin-top:.45rem;">

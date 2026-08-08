@@ -357,6 +357,34 @@ async function loadClasses(section) {
     html += '<option value="__new__">➕ New class…</option>';
     sel.innerHTML = html;
     sel.value = classIsLegacy() ? '__legacy__' : curKey;
+    updateDeleteClassBtn();
+}
+
+/* Ipakita ang trash button para lang sa PANGALANANG klase — walang buburahin
+   sa untagged sheet, at tinatanggihan iyon ng server. */
+function updateDeleteClassBtn() {
+    const b = $('btnDeleteClass');
+    if (!b) return;
+    b.style.display = classIsLegacy() ? 'none' : 'inline-flex';
+}
+
+/* Burahin ang kasalukuyang klase. Ang server ang nagpapasya: tumatanggi ito
+   kapag may laman pa ang klase at pinapangalanan kung ano, kaya hindi ito
+   makakabura ng grado. Kaya sapat na ang isang payak na kumpirmasyon dito. */
+async function deleteCurrentClass() {
+    if (!SHEET || classIsLegacy()) return;
+    const label = classLabel(CLASS);
+    if (!confirm(`Delete the class "${label}"?\n\nOnly the class name is removed. If it still has activities or settings, this will be refused.`)) return;
+
+    const d = await apiPost({ api: 'delete_class', section: SHEET.section });
+    if (!d.success) { showToastSafe(d.message || 'Could not delete the class.', 'error'); return; }
+
+    CLASS = { school_year: '', semester: '', subject: '' };   // bumalik sa untagged sheet
+    saveClassPref();
+    await loadClasses(SHEET.section);
+    updateDeleteClassBtn();
+    loadSheet(SHEET.section);
+    showToastSafe(`Deleted the class "${label}".`, 'success');
 }
 
 function setClassFromSelect() {
@@ -373,6 +401,7 @@ async function onSelClassChange() {
     if ($('selClass').value === '__new__') { showNewClassForm(); return; }
     hideNewClassForm();
     setClassFromSelect();
+    updateDeleteClassBtn();
     const section = $('selSection').value;
     if (section) loadSheet(section);
 }
@@ -3341,6 +3370,7 @@ $('pinList').addEventListener('change', e => {
 /* ── Class picker: restore saved selection + wire the dropdown/create form ── */
 loadClassPref();
 if ($('selClass')) $('selClass').addEventListener('change', onSelClassChange);
+if ($('btnDeleteClass')) $('btnDeleteClass').addEventListener('click', deleteCurrentClass);
 if ($('btnCreateClass')) $('btnCreateClass').addEventListener('click', onCreateClass);
 if ($('btnCancelClass')) $('btnCancelClass').addEventListener('click', revertClassSelect);
 loadSections();

@@ -66,6 +66,7 @@ class Router
         // class management
         'classes'               => [ClassController::class, 'classes'],
         'create_class'          => [ClassController::class, 'create'],
+        'delete_class'          => [ClassController::class, 'delete'],
         'retag_class'           => [ClassController::class, 'retag'],
     ];
 

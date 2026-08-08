@@ -102,6 +102,33 @@ class ClassRepo
         return $found;
     }
 
+    /* Alisin ang isang WALANG LAMANG klase sa registry. Ang tumatawag ang dapat
+       tumiyak muna sa targetConflicts() na wala nga itong datos — hindi kailanman
+       bumubura ng grado ang paraang ito.
+
+       Kasama ang grade_roster_snapshot: hindi iyon tinipa ng guro (kusang
+       napupuno sa tuwing binubuksan ang klase), kaya hindi ito hadlang sa
+       pagbura — pero kailangang linisin, kung hindi ay maiiwang ulila ang mga
+       row ng klaseng wala na. */
+    public function deleteEmpty(string $section, string $sy, string $sem, string $subj): void
+    {
+        $conn = $this->db->conn;
+        $admin = $this->ownerId;
+
+        $del = $conn->prepare("DELETE FROM grade_classes
+            WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?");
+        $del->bind_param('issss', $admin, $section, $sy, $sem, $subj);
+        $del->execute();
+        $del->close();
+
+        $t = self::SNAPSHOT_TABLE;
+        $snap = $conn->prepare("DELETE FROM `$t`
+            WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?");
+        $snap->bind_param('issss', $admin, $section, $sy, $sem, $subj);
+        $snap->execute();
+        $snap->close();
+    }
+
     /* Move every class-scoped row for (section, from-scope) → (to-scope) in one
        transaction. Returns the number of activities moved. Throws on failure
        (e.g. a key collision), leaving everything untouched. */
