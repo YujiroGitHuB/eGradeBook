@@ -451,6 +451,21 @@ main {
     color: var(--danger);
 }
 
+/* ── Shared confirm modal ────────────────────────────────────
+   Laging IBABAW ng modal na nagbukas dito. Pareho silang .modal-backdrop
+   (z-index 200), kaya ang mas huli sa DOM ang nananalo — at nauuna ang
+   #uiConfirmModal kaysa sa #tmModal, kaya nakatago ang tanong sa likod ng
+   Transmutation hanggang isara mo iyon. Hindi dapat nakasalalay sa pagkakasunod
+   ng markup ang isang bagay na ganito, kaya tahasang mas mataas.
+
+   Mas manipis din ang dilim kaysa sa karaniwang backdrop: dalawang layer na
+   ang nagpapatong-patong, at gusto nating manatiling nakikita ang unang modal
+   sa likod — tanong ito TUNGKOL doon, hindi bagong pahina. */
+#uiConfirmModal {
+    z-index: 300;
+    background: rgba(0, 0, 0, .45);
+}
+
 /* ── Manage access modal (superadmin) ── */
 .acc-list {
     display: flex;
