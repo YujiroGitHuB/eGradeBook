@@ -14,16 +14,37 @@ use App\Core\Database;
    ============================================================ */
 class ClassRepo
 {
-    /* Tunay na datos ng guro — ito ang inililipat nang buo, at ito ang
-       ipinagbabawal na mabanggaan (may mawawala kung papatungan). */
-    private const DATA_TABLES = [
+    /* LAMAN — ang tinipang gradebook mismo. Ito lang ang hindi kayang buuing
+       muli sa isang klik, kaya ito lang ang humahadlang sa pagbura ng klase.
+       (Ang mga score ay nakasabit sa activity_id, kaya kasama na sila rito.) */
+    private const CONTENT_TABLES = [
         'grade_activities'      => 'activities',
+        'grade_student_status'  => 'student status overrides',
+    ];
+
+    /* SETUP — mga kahon at toggle: kung paano bibilangin ang laman, hindi ang
+       laman mismo. Nabubuo ang row na ito sa isang tsek lang (Attendance,
+       Term grading) o sa pagtatago ng isang form column — at ang ilan ay
+       WALANG paraan sa UI para tanggalin (nananatili ang grade_form_meta kahit
+       ipakita mong muli ang column, at ang grade_attendance_meta kahit alisin
+       mo ang tsek). Kaya kapag ibinura ang klase, kasama nang nililinis ang mga
+       ito sa halip na maging hadlang — dating naiiwang bitag ito: klaseng
+       walang kahit isang activity pero hindi na mabura kailanman. */
+    private const SETUP_TABLES = [
         'grade_categories'      => 'grading categories',
         'grade_settings'        => 'grading settings',
         'grade_form_meta'       => 'form column setup',
         'grade_attendance_meta' => 'attendance setup',
-        'grade_student_status'  => 'student status overrides',
     ];
+
+    /* Lahat ng class-scoped na table ng guro — ito ang inililipat nang buo ng
+       retag(), at ito ang ipinagbabawal na mabanggaan doon (may mawawala kung
+       papatungan). Ang paghahati sa laman/setup sa itaas ay para LANG sa
+       pagbura ng klase. */
+    private static function dataTables(): array
+    {
+        return self::CONTENT_TABLES + self::SETUP_TABLES;
+    }
 
     /* grade_roster_snapshot ay SADYANG hiwalay. Hindi ito tinipa ng guro —
        kusang napupuno sa TUWING binubuksan ang isang tagged class (tingnan ang
@@ -88,9 +109,21 @@ class ClassRepo
        sa MySQL. Dito na nahuhuli, nang may maayos na mensahe. */
     public function targetConflicts(string $section, string $sy, string $sem, string $subj): array
     {
+        return $this->conflictsIn(self::dataTables(), $section, $sy, $sem, $subj);
+    }
+
+    /* Para sa PAGBURA ng klase: laman lang ang tinitingnan. Hindi hadlang ang
+       setup — nililinis iyon ng deleteEmpty(). Tingnan ang SETUP_TABLES. */
+    public function contentConflicts(string $section, string $sy, string $sem, string $subj): array
+    {
+        return $this->conflictsIn(self::CONTENT_TABLES, $section, $sy, $sem, $subj);
+    }
+
+    private function conflictsIn(array $tables, string $section, string $sy, string $sem, string $subj): array
+    {
         $admin = $this->ownerId;
         $found = [];
-        foreach (self::DATA_TABLES as $t => $label) {
+        foreach ($tables as $t => $label) {
             // $t ay galing sa fixed whitelist, hindi user input
             $stmt = $this->db->prepare("SELECT 1 FROM `$t`
                 WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=? LIMIT 1");
@@ -102,31 +135,55 @@ class ClassRepo
         return $found;
     }
 
-    /* Alisin ang isang WALANG LAMANG klase sa registry. Ang tumatawag ang dapat
-       tumiyak muna sa targetConflicts() na wala nga itong datos — hindi kailanman
-       bumubura ng grado ang paraang ito.
+    /* Alisin ang klaseng WALANG LAMAN. Ang tumatawag ang dapat tumiyak muna sa
+       contentConflicts() na wala nga itong activity o status override — hindi
+       kailanman bumubura ng grado ang paraang ito.
 
-       Kasama ang grade_roster_snapshot: hindi iyon tinipa ng guro (kusang
-       napupuno sa tuwing binubuksan ang klase), kaya hindi ito hadlang sa
-       pagbura — pero kailangang linisin, kung hindi ay maiiwang ulila ang mga
-       row ng klaseng wala na. */
-    public function deleteEmpty(string $section, string $sy, string $sem, string $subj): void
+       Ang naaalis: ang pangalan sa registry, ang kusang-nabuong roster snapshot
+       (hindi tinipa ng guro; muling mabubuo kung mabubuksan ulit ang klase), at
+       ang SETUP_TABLES — ang mga kahon at toggle na walang taglay na marka.
+       Kung hindi lilinisin ang mga iyon, maiiwan silang ulila sa isang klaseng
+       wala na, at ang klase mismo ay hindi kailanman mabubura.
+
+       Nagbabalik ng mga label ng setup na aktuwal na nalinis (para may
+       maisumbong sa guro). Iisang transaction — lahat o wala. */
+    public function deleteEmpty(string $section, string $sy, string $sem, string $subj): array
     {
         $conn = $this->db->conn;
         $admin = $this->ownerId;
 
-        $del = $conn->prepare("DELETE FROM grade_classes
-            WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?");
-        $del->bind_param('issss', $admin, $section, $sy, $sem, $subj);
-        $del->execute();
-        $del->close();
+        $conn->begin_transaction();
+        try {
+            $cleared = [];
+            foreach (self::SETUP_TABLES as $t => $label) {
+                // $t ay galing sa fixed whitelist, hindi user input
+                $stmt = $conn->prepare("DELETE FROM `$t`
+                    WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?");
+                $stmt->bind_param('issss', $admin, $section, $sy, $sem, $subj);
+                $stmt->execute();
+                if ($stmt->affected_rows > 0) $cleared[] = $label;
+                $stmt->close();
+            }
 
-        $t = self::SNAPSHOT_TABLE;
-        $snap = $conn->prepare("DELETE FROM `$t`
-            WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?");
-        $snap->bind_param('issss', $admin, $section, $sy, $sem, $subj);
-        $snap->execute();
-        $snap->close();
+            $t = self::SNAPSHOT_TABLE;
+            $snap = $conn->prepare("DELETE FROM `$t`
+                WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?");
+            $snap->bind_param('issss', $admin, $section, $sy, $sem, $subj);
+            $snap->execute();
+            $snap->close();
+
+            $del = $conn->prepare("DELETE FROM grade_classes
+                WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?");
+            $del->bind_param('issss', $admin, $section, $sy, $sem, $subj);
+            $del->execute();
+            $del->close();
+
+            $conn->commit();
+            return $cleared;
+        } catch (\Throwable $e) {
+            $conn->rollback();
+            throw $e;
+        }
     }
 
     /* Move every class-scoped row for (section, from-scope) → (to-scope) in one
@@ -139,7 +196,7 @@ class ClassRepo
         $conn->begin_transaction();
         try {
             $moved = 0;
-            foreach (array_keys(self::DATA_TABLES) as $t) {
+            foreach (array_keys(self::dataTables()) as $t) {
                 // $t is from a fixed whitelist, not user input
                 $stmt = $conn->prepare("UPDATE `$t` SET school_year=?, semester=?, subject=?
                     WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?");

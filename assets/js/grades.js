@@ -369,12 +369,13 @@ function updateDeleteClassBtn() {
 }
 
 /* Burahin ang kasalukuyang klase. Ang server ang nagpapasya: tumatanggi ito
-   kapag may laman pa ang klase at pinapangalanan kung ano, kaya hindi ito
-   makakabura ng grado. Kaya sapat na ang isang payak na kumpirmasyon dito. */
+   kapag may activity o status override pa ang klase, kaya hindi ito makakabura
+   ng grado. Ang setup lang (settings, categories, form/attendance column setup)
+   ang kasamang nililinis — sinasabi ito ng kumpirmasyon nang tahasan. */
 async function deleteCurrentClass() {
     if (!SHEET || classIsLegacy()) return;
     const label = classLabel(CLASS);
-    if (!confirm(`Delete the class "${label}"?\n\nOnly the class name is removed. If it still has activities or settings, this will be refused.`)) return;
+    if (!confirm(`Delete the class "${label}"?\n\nIts grading setup (settings, categories, form and attendance column setup) is removed with it. No scores are touched — if the class still has activities, this will be refused.`)) return;
 
     const d = await apiPost({ api: 'delete_class', section: SHEET.section });
     if (!d.success) { showToastSafe(d.message || 'Could not delete the class.', 'error'); return; }
@@ -384,7 +385,8 @@ async function deleteCurrentClass() {
     await loadClasses(SHEET.section);
     updateDeleteClassBtn();
     loadSheet(SHEET.section);
-    showToastSafe(`Deleted the class "${label}".`, 'success');
+    const cleared = Array.isArray(d.cleared) && d.cleared.length ? ` Cleared its ${d.cleared.join(', ')}.` : '';
+    showToastSafe(`Deleted the class "${label}".${cleared}`, 'success');
 }
 
 function setClassFromSelect() {

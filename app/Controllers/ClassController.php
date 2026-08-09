@@ -39,10 +39,15 @@ class ClassController extends Controller
     }
 
     /* Burahin ang klaseng WALANG laman (ang scope ng request ang klase).
-       Sadyang hindi ito makakabura ng grado: kung may anumang datos ang klase,
-       tumatanggi ito at pinapangalanan kung ano — ang guro mismo ang maglilipat
-       o magbubura niyon. Ang tanging naaalis ay ang pangalan sa dropdown at ang
-       kusang-nabuong roster snapshot. */
+       Sadyang hindi ito makakabura ng grado: kung may activity o status override
+       ang klase, tumatanggi ito at pinapangalanan kung ano — ang guro mismo ang
+       maglilipat o magbubura niyon.
+
+       Ang setup (grading settings, categories, form column at attendance setup)
+       ay HINDI hadlang — kasamang nililinis. Dati'y binibilang ito bilang laman,
+       kaya ang klaseng nilagyan lang ng tsek sa Attendance o pinagtaguan ng isang
+       form column ay hindi na mabura kahit isang activity ay wala — lalo pa't ang
+       ilan sa mga row na iyon ay walang paraan sa UI para tanggalin. */
     public function delete(): void
     {
         $scope = $this->classScope();
@@ -59,14 +64,19 @@ class ClassController extends Controller
         }
 
         $repo = new ClassRepo($this->db, $this->ownerId);
-        $conflicts = $repo->targetConflicts($scope->section, $scope->schoolYear, $scope->semester, $scope->subject);
+        $conflicts = $repo->contentConflicts($scope->section, $scope->schoolYear, $scope->semester, $scope->subject);
         if ($conflicts) {
-            $this->fail('This class still has ' . implode(', ', $conflicts) . '. Move or delete them first.');
+            $this->fail('This class still has ' . implode(' and ', $conflicts) . '. Delete them (or re-tag the class) first.');
             return;
         }
 
-        $repo->deleteEmpty($scope->section, $scope->schoolYear, $scope->semester, $scope->subject);
-        $this->ok();
+        try {
+            $cleared = $repo->deleteEmpty($scope->section, $scope->schoolYear, $scope->semester, $scope->subject);
+            $this->ok(['cleared' => $cleared]);
+        } catch (\Throwable $e) {
+            error_log('eGradeBook delete_class failed: ' . $e);
+            $this->fail('Could not delete this class. Please try again.');
+        }
     }
 
     public function retag(): void

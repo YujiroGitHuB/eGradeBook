@@ -171,7 +171,7 @@ scope columns — the **legacy class** — so old sheets keep working unchanged.
   **Re-tag**: the `retag_class` action (`App\Models\ClassRepo` /
   `App\Controllers\ClassController`, "Tag as class…" in the More menu) relabels a
   whole class's rows from one scope to another (e.g. naming an untagged sheet).
-  It splits the scoped tables in two: `ClassRepo::DATA_TABLES` (the six the
+  It splits the scoped tables in two: `ClassRepo::dataTables()` (the six the
   teacher actually fills) are **moved**, and the target is refused if any of them
   already has rows — `targetConflicts()` checks all six and names them in the
   error, where the old guard looked only at `grade_activities` and let the rest
@@ -182,6 +182,17 @@ scope columns — the **legacy class** — so old sheets keep working unchanged.
   had merely been opened, and moving it outright would collide. IGNORE keeps the
   target's already-captured name and preserves source-only students — the very
   students the snapshot exists to hold on to.
+  **Delete** (`delete_class`, the trash button beside the Class dropdown) splits
+  those same six differently: `CONTENT_TABLES` (`grade_activities`,
+  `grade_student_status` — what the teacher typed; scores hang off `activity_id`)
+  **block** the delete, while `SETUP_TABLES` (`grade_categories`,
+  `grade_settings`, `grade_form_meta`, `grade_attendance_meta`) are **cleared
+  along with it** and reported back as `cleared`. Setup used to count as content,
+  which made a class with zero activities permanently undeletable once the
+  teacher ticked Attendance or hid one form column — worse, those two rows have
+  no UI that removes them (un-hiding a form leaves `hidden = 0`, un-ticking
+  Attendance leaves `enabled = 0`), so there was no way out at all. Only the
+  legacy (untagged) sheet is still refused outright.
 - NB: the app's existing **`term`** (Midterm/Final) is a sub-period *within* a
   semester — **not** the semester. Full design in `docs/class-scoping-plan.md`.
 
