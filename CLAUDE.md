@@ -128,6 +128,21 @@ via `UserRepo`, called from `login.php`) queries FormFlow's table directly via
   (exposed as `Auth::ownerId()`, passed into every repo/controller). Any new query
   touching `grade_*` tables must filter/insert with `owner_id`, and ownership-check
   helpers like `ActivityRepo::owns()` / `FormRepo::owns()` guard mutations.
+- **`reset_all` ("Clear all my data", More ▸ Danger zone)** wipes one teacher's
+  entire gradebook — every section, every class. `App\Models\ResetRepo` holds the
+  table whitelist and two hard limits: every `DELETE` carries `owner_id = ?`
+  (**never `TRUNCATE`** — superadmin is not the only account, and one teacher must
+  not wipe another's), and only `egradebook_db`'s own `grade_*` tables are listed
+  (`formflow_db` and `bcc_qr_attendance_db` are read-only bridges, so the forms,
+  responses, roster and scans all survive). `grade_activity_scores` has no
+  `owner_id`, so it is deleted first via a join on `grade_activities` rather than
+  trusting the FK cascade, which a MyISAM table would silently ignore.
+  `grade_transmute` goes too — `TransmuteRepo::load()` reseeds the default scale
+  on the next read. `grade_schema_version` is never touched (see the
+  `Schema::migrate()` note under Conventions). Guarded by **type-to-confirm**:
+  the client enables the button only on the exact phrase `CLEAR ALL`, and
+  `ResetController` re-checks that same phrase server-side — a disabled button is
+  no defence against a stray `?api=reset_all`.
 
 ## Class scoping (school year / semester / subject)
 
@@ -224,7 +239,7 @@ Layers under `app/`:
   holds `$db`/`$ownerId`, gives `json`/`ok`/`fail`/`post`/`get`/`classScope()`
   helpers), `ClassScope` (the class-scope DTO — see "Class scoping"), and
   `Router` (maps every `?api=` action name → `[Controller::class, 'method']` —
-  **register new actions here**; all 32 actions are listed in `Core/Router.php`).
+  **register new actions here**; all 33 actions are listed in `Core/Router.php`).
 - **`Models/`** — one owner-scoped repository per table/domain. Grade tables:
   `ActivityRepo`, `ScoreRepo`, `CategoryRepo`, `SettingsRepo`, `TransmuteRepo`
   (holds `DEFAULT_EQUIV`), `StatusRepo`, `FormMetaRepo`, `AttendanceRepo`,
@@ -242,8 +257,9 @@ Layers under `app/`:
   `SettingsController`, `TransmuteController` (its get-bands method is
   **`getBands()`**, not `get()`, to avoid clashing with the base
   `Controller::get()` input helper), `CategoryController`, `StatusController`,
-  `ClassController` (`retag_class`), plus `AuthController` (login, used by
-  `login.php`).
+  `ClassController` (`retag_class`), `ResetController` (`reset_all` — the
+  danger-zone "Clear all my data", see below), plus `AuthController` (login,
+  used by `login.php`).
 - **`Views/`** — `sheet.php` (the grading-sheet page). `login.php` keeps its view
   inline. Shared UI pieces are still in `components/` (`favico`, `footer`,
   `logoutModal`, `supportModal`); the view includes them via `APP_ROOT`.

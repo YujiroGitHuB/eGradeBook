@@ -12,6 +12,7 @@ use App\Controllers\TransmuteController;
 use App\Controllers\CategoryController;
 use App\Controllers\StatusController;
 use App\Controllers\ClassController;
+use App\Controllers\ResetController;
 
 /* ============================================================
    Router — maps a `?api=` action to [ControllerClass, method]. Keeps
@@ -68,6 +69,8 @@ class Router
         'create_class'          => [ClassController::class, 'create'],
         'delete_class'          => [ClassController::class, 'delete'],
         'retag_class'           => [ClassController::class, 'retag'],
+        // danger zone — wipes THIS teacher's whole gradebook (type-to-confirm)
+        'reset_all'             => [ResetController::class, 'clearAll'],
     ];
 
     private Database $db;

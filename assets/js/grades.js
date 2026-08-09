@@ -3129,6 +3129,58 @@ async function applyRetag() {
     loadSheet(SHEET.section);
 }
 
+/* ── Clear all my data (danger zone) ─────────────────────────
+   Ibinabalik sa walang laman ang buong gradebook ng gurong naka-log in —
+   lahat ng section, lahat ng klase. Hindi ito mababawi, kaya:
+
+   - Type-to-confirm, hindi confirm(): kailangang i-type nang eksakto ang
+     CLEAR_PHRASE bago mag-enable ang button. Ang isang OK/Cancel ay masyadong
+     malapit sa mga OK/Cancel na pinipindot mo maghapon.
+   - Sinusuri rin ng SERVER ang parehong salita — hindi sapat na hadlang ang
+     isang naka-disable na button (tingnan ang ResetController).
+   - Buo ang FormFlow forms/sagot at ang attendance roster/scans: binabasa lang
+     ang mga iyon ng eGradeBook, hindi kanya. */
+const CLEAR_PHRASE = 'CLEAR ALL';
+
+function openClearAll() {
+    $('clearAllPhrase').value = '';
+    $('clearAllErr').style.display = 'none';
+    $('clearAllApply').disabled = true;
+    $('clearAllModal').classList.add('show');
+    setTimeout(() => $('clearAllPhrase').focus(), 60);
+}
+function closeClearAll() { $('clearAllModal').classList.remove('show'); }
+
+async function applyClearAll() {
+    const phrase = $('clearAllPhrase').value.trim();
+    const err = $('clearAllErr');
+    if (phrase !== CLEAR_PHRASE) {
+        err.textContent = `Type ${CLEAR_PHRASE} exactly to confirm.`;
+        err.style.display = 'block';
+        return;
+    }
+    const btn = $('clearAllApply');
+    btn.disabled = true;
+    const d = await apiPost({ api: 'reset_all', confirm: phrase });
+    if (!d.success) {
+        btn.disabled = false;
+        err.textContent = d.message || 'Could not clear your gradebook.';
+        err.style.display = 'block';
+        return;
+    }
+    closeClearAll();
+
+    /* Kalimutan ang naka-save na klase bago mag-reload: wala na ang klaseng
+       iyon, at kung mananatili ito sa localStorage ay bubuksan muli ng app
+       ang isang pangalan na kaka-bura lang natin (at maire-rehistro itong
+       muli ng SheetController). Buong reload — mas malinis kaysa hulaan
+       kung aling bahagi ng SHEET ang dapat i-reset. */
+    try { localStorage.removeItem(CLASS_KEY); } catch (e) {}
+    const n = Object.values(d.deleted || {}).reduce((a, b) => a + b, 0);
+    showToastSafe(`Gradebook cleared — ${n} row${n === 1 ? '' : 's'} deleted. Reloading…`, 'success');
+    setTimeout(() => location.reload(), 900);
+}
+
 /* ── wire up ────────────────────────────────────────────── */
 $('selSection').addEventListener('change', async e => {
     await loadClasses(e.target.value);   // refresh the class dropdown for this section
@@ -3268,6 +3320,18 @@ $('btnCopyFrom').addEventListener('click', openCopyModal);
 $('btnRetag').addEventListener('click', openRetag);
 $('retagCancel').addEventListener('click', closeRetag);
 $('retagApply').addEventListener('click', applyRetag);
+$('btnClearAll').addEventListener('click', openClearAll);
+$('clearAllCancel').addEventListener('click', closeClearAll);
+$('clearAllApply').addEventListener('click', applyClearAll);
+/* Ang button ay nabubuhay lang sa eksaktong salita — ito ang buong bigat ng
+   type-to-confirm, kaya walang trim-tolerance sa case o sa laman. */
+$('clearAllPhrase').addEventListener('input', e => {
+    $('clearAllApply').disabled = e.target.value.trim() !== CLEAR_PHRASE;
+    $('clearAllErr').style.display = 'none';
+});
+$('clearAllPhrase').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !$('clearAllApply').disabled) applyClearAll();
+});
 $('copyCancel').addEventListener('click', closeCopyModal);
 $('copyApply').addEventListener('click', applyCopy);
 $('copyFromSection').addEventListener('change', () => {

@@ -99,6 +99,9 @@
                         <button class="profile-menu-item" id="btnPdfSection" role="menuitem" title="PDF of the current section's grades"><i class="bi bi-file-earmark-pdf"></i> Export section (PDF)</button>
                         <button class="profile-menu-item" id="btnPdfAll" role="menuitem" title="One combined PDF of every section's grades"><i class="bi bi-file-earmark-pdf-fill"></i> Export all (PDF)</button>
                         <button class="profile-menu-item" id="btnPrint" role="menuitem"><i class="bi bi-printer"></i> Print</button>
+                        <div class="profile-menu-divider"></div>
+                        <div class="gs-more-label">Danger zone</div>
+                        <button class="profile-menu-item danger" id="btnClearAll" role="menuitem" title="Delete your whole gradebook — every section and class"><i class="bi bi-exclamation-octagon"></i> Clear all my data…</button>
                     </div>
                 </div>
                 <button class="btn btn-primary btn-sm" id="btnExport"><i class="bi bi-filetype-csv"></i> <span class="btn-label">Export CSV</span></button>
@@ -443,6 +446,37 @@
             <div class="modal-actions" style="margin-top:1.3rem;">
                 <button class="btn btn-ghost" id="retagCancel">Cancel</button>
                 <button class="btn btn-primary" id="retagApply"><i class="bi bi-tag"></i> Tag class</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Clear All Modal (danger zone) — wipes THIS teacher's whole gradebook.
+         Type-to-confirm: the button stays disabled until the exact phrase is
+         typed, and the server checks the same phrase again (a stray
+         ?api=reset_all must not go through just because no dialog blocked it).
+         Only egradebook_db's own grade_* tables are touched — the FormFlow
+         forms/responses and the attendance roster/scans are read-only here. -->
+    <div class="modal-backdrop" id="clearAllModal">
+        <div class="modal gs-maccent" style="max-width:520px;">
+            <div class="gs-mhead">
+                <div class="gs-mhead-ic danger"><i class="bi bi-exclamation-octagon"></i></div>
+                <div>
+                    <h3 class="gs-mtitle">Clear all my data</h3>
+                    <p class="gs-msub">Start over with an empty gradebook. This cannot be undone.</p>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:.9rem;margin:1.1rem 0 0;">
+                <p class="bulk-note" style="margin:0;"><i class="bi bi-trash3"></i> <b>Deleted:</b> every activity and score, grading categories, settings, form column and attendance setup, student status overrides, your classes, pinned sections, and your transmutation bands (back to the default scale) — across <b>all sections</b>, not just this one.</p>
+                <p class="bulk-note" style="margin:0;"><i class="bi bi-shield-check"></i> <b>Kept:</b> your FormFlow forms and their responses, the student roster, and the attendance scans. Those live in the other apps — eGradeBook only reads them. Other teachers' gradebooks are untouched.</p>
+                <div class="gs-field">
+                    <label for="clearAllPhrase">Type <b>CLEAR ALL</b> to confirm</label>
+                    <input id="clearAllPhrase" placeholder="CLEAR ALL" autocomplete="off" spellcheck="false" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:.55rem .7rem;font-size:.9rem;outline:none;">
+                </div>
+                <p id="clearAllErr" class="bulk-err" style="display:none;"></p>
+            </div>
+            <div class="modal-actions" style="margin-top:1.3rem;">
+                <button class="btn btn-ghost" id="clearAllCancel">Cancel</button>
+                <button class="btn btn-danger" id="clearAllApply" disabled><i class="bi bi-trash3"></i> Delete everything</button>
             </div>
         </div>
     </div>
