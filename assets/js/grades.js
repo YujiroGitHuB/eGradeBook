@@ -416,6 +416,16 @@ function showNewClassForm() {
     $('selSubject').value = '';
     loadSchoolYears();
     loadSubjectsFor($('selSection').value);
+    /* Sabihin kung SAAN gagawin ang klase. Nakapatong ang bagong klase sa
+       section na bukas, pero sa oras na bumukas ang form ay "New class…" na
+       ang nakasulat sa dropdown — wala nang natitirang nagsasabi niyon. */
+    const hint = $('newClassHint');
+    const sec = $('selSection').value;
+    if (hint) {
+        hint.innerHTML = sec
+            ? `<i class="bi bi-plus-circle"></i> New class for <b>${escHtml(sec)}</b>`
+            : '<i class="bi bi-plus-circle"></i> New class';
+    }
     f.style.display = 'flex';
     $('selSchoolYear').focus();
 }
@@ -3439,4 +3449,15 @@ if ($('selClass')) $('selClass').addEventListener('change', onSelClassChange);
 if ($('btnDeleteClass')) $('btnDeleteClass').addEventListener('click', deleteCurrentClass);
 if ($('btnCreateClass')) $('btnCreateClass').addEventListener('click', onCreateClass);
 if ($('btnCancelClass')) $('btnCancelClass').addEventListener('click', revertClassSelect);
+/* Enter = Create, Esc = Cancel sa loob ng New-class form. Maliit lang ang
+   form at hindi ito <form>, kaya walang implicit submit — walang mangyayari
+   dati sa Enter, na parang sira ang pakiramdam habang nagta-type. */
+['selSchoolYear', 'selSemester', 'selSubject'].forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); onCreateClass(); }
+        else if (e.key === 'Escape') { e.preventDefault(); revertClassSelect(); }
+    });
+});
 loadSections();

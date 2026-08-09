@@ -4,18 +4,35 @@ main {
     padding: 1.5rem 1rem 4rem;
 }
 
-/* ── Controls bar ── */
+/* ── Controls bar ──────────────────────────────────────────
+   Dalawang zone, hindi isang mahabang hilera ng field. Dati ay
+   `align-items:flex-end` ang buong bar, kaya ang taas ng PINAKAMATAAS na
+   field ang sumusunod na baseline ng lahat: paglitaw ng New-class form,
+   nahihila pababa ang Search at Passing at nawawala sa isang linya ang mga
+   label nila. Ngayon, ang kaliwa (aling sheet) at ang kanan (paano ipakita)
+   ay magkaibang baseline — `flex-start` sa labas, `flex-end` sa loob. */
 .gs-controls {
     display: flex;
     flex-wrap: wrap;
-    gap: .75rem;
-    align-items: flex-end;
+    gap: .75rem 1.25rem;
+    align-items: flex-start;
+    justify-content: space-between;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 1rem 1.25rem;
     margin-bottom: 1.25rem;
 }
+
+.gs-czone {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem;
+    align-items: flex-end;
+}
+
+.gs-czone-left  { flex: 1 1 420px; }
+.gs-czone-right { flex: 1 1 520px; justify-content: flex-end; }
 
 .gs-field {
     display: flex;
@@ -50,6 +67,80 @@ main {
 
 .gs-field input[type="number"] {
     min-width: 90px;
+}
+
+.gs-lbl-hint {
+    color: var(--muted);
+    font-weight: 400;
+    font-size: .78rem;
+    text-transform: none;
+}
+
+/* Isang klase na kapalit ng anim na magkaparehong inline style="" sa
+   sheet.php (class select + ang tatlong field ng New class). */
+.gs-input {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: .5rem .65rem;
+    font-size: .87rem;
+    font-family: inherit;
+    outline: none;
+}
+
+.gs-input:focus { border-color: var(--accent); }
+
+.gs-class-row {
+    display: flex;
+    gap: .4rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* Kailangan ng .gs-field na prefix — mas mataas ang specificity ng
+   pangkalahatang `.gs-field select` (min-width:200px) kaysa sa isang klase. */
+.gs-field .gs-class-select { min-width: 220px; }
+
+/* ── New-class form: sariling buong-lapad na hilera ──────────
+   `flex: 1 0 100%` — kaya kahit kailan ito lumitaw, sa ibaba ito pumupwesto
+   at walang naiuusog sa itaas. Ang display ay pinapalitan ng grades.js
+   (none ⇄ flex), kaya huwag itong gawing grid. */
+.gs-newclass {
+    flex: 1 0 100%;
+    flex-wrap: wrap;
+    gap: .7rem;
+    align-items: flex-end;
+    margin-top: .4rem;
+    padding-top: .9rem;
+    border-top: 1px dashed var(--border);
+}
+
+.gs-newclass-hint {
+    flex: 1 0 100%;
+    margin: 0;
+    font-size: .82rem;
+    color: var(--muted);
+}
+
+.gs-newclass-hint b { color: var(--text); }
+
+.gs-newclass .gs-field { flex: 0 1 170px; }
+.gs-newclass-subj { flex: 1 1 220px !important; }
+
+/* Kalasin ang min-width:200px ng pangkalahatang .gs-field rule — apat na
+   field ang magkakatabi rito, hindi isa. */
+.gs-newclass .gs-field select,
+.gs-newclass .gs-field input {
+    min-width: 0;
+    width: 100%;
+}
+
+.gs-newclass-actions {
+    display: flex;
+    gap: .4rem;
+    align-items: center;
+    flex: 0 0 auto;
 }
 
 /* ── Modern section dropdown (custom skin over the native <select>) ── */
@@ -170,24 +261,61 @@ main {
 .msel-opt-check { font-size: .9rem; }
 .msel-empty { padding: .9rem .6rem; text-align: center; color: var(--muted); font-size: .84rem; }
 
-.gs-spacer {
-    flex: 1 1 auto;
+/* ── Grading toggles ────────────────────────────────────────
+   Pahalang na hilera ng chip, hindi nakasalansang tatlong linya sa gilid.
+   Nasa labas na sila ng .gs-field kaya hindi na sila naka-uppercase — mga
+   pangungusap ang mga ito, hindi label. */
+.gs-opts {
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+}
+
+.gs-optlabel {
+    font-size: .72rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.gs-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    align-items: center;
 }
 
 .gs-check {
     display: flex;
     align-items: center;
     gap: .45rem;
-    font-size: .85rem;
-    color: var(--text);
+    font-size: .82rem;
+    color: var(--muted);
     cursor: pointer;
     user-select: none;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: .42rem .75rem;
+    line-height: 1;
+    transition: border-color .15s, background .15s, color .15s;
+}
+
+.gs-check:hover { border-color: var(--accent); color: var(--text); }
+
+/* Nakikita agad kung alin ang naka-on. Kung walang :has() ang browser,
+   ang checkbox mismo ang nagsasabi — hindi nasisira ang chip. */
+.gs-check:has(input:checked) {
+    border-color: var(--accent);
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .gs-check input {
     accent-color: var(--accent);
-    width: 16px;
-    height: 16px;
+    width: 15px;
+    height: 15px;
+    margin: 0;
 }
 
 /* ── Stat chips ── */
@@ -1368,6 +1496,39 @@ table.gs tbody td.fin-cell {
     .gs-field select,
     .gs-field input[type="text"] {
         min-width: 150px;
+    }
+
+    /* Isang kolumna na ang bar sa telepono: hindi na magkatabi ang dalawang
+       zone, kaya kaliwang-hanay ang kanan at buong-lapad ang mga field. */
+    .gs-czone-left,
+    .gs-czone-right {
+        flex: 1 1 100%;
+        justify-content: flex-start;
+    }
+
+    .gs-czone > .gs-field,
+    .gs-czone > .gs-opts {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    /* Ang .gs-class-row ay anak ng column-flex na .gs-field — width ang
+       gamit dito, hindi flex-basis (taas ang ibig sabihin niyon doon). */
+    .gs-class-row { width: 100%; }
+
+    .gs-class-select {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .gs-newclass .gs-field,
+    .gs-newclass-subj {
+        flex: 1 1 100% !important;
+    }
+
+    .gs-newclass-actions .btn {
+        flex: 1 1 auto;
+        justify-content: center;
     }
 }
 

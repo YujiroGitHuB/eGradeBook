@@ -134,8 +134,13 @@
             <div class="gs-coltags" id="colTags"></div>
         </div>
 
-        <!-- Controls -->
+        <!-- Controls — dalawang zone: KALIWA = kung aling sheet ang tinitingnan
+             mo (section + class), KANAN = paano ito ipapakita (search, passing,
+             mga toggle). Hiwalay ang baseline nila, kaya hindi na nasisira ang
+             pagkakahanay kapag lumaki ang kaliwa. Sariling hilera sa ibaba ang
+             New-class form (tingnan ang .gs-newclass sa grades.css). -->
         <div class="gs-controls">
+          <div class="gs-czone gs-czone-left">
             <div class="gs-field">
                 <label for="selSection" style="display:flex;align-items:center;gap:.5rem;justify-content:space-between;">
                     <span>Section / Class</span>
@@ -163,36 +168,20 @@
                 </div>
             </div>
             <div class="gs-field gs-class-field">
-                <label>Class <span style="color:var(--muted);font-weight:400;font-size:.78rem;">— pick or create</span></label>
-                <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;">
-                    <select id="selClass" title="Pick a class or create a new one"
-                        style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:.5rem .6rem;font-size:.85rem;outline:none;min-width:220px;">
+                <label for="selClass">Class <span class="gs-lbl-hint">— pick or create</span></label>
+                <div class="gs-class-row">
+                    <select id="selClass" class="gs-input gs-class-select" title="Pick a class or create a new one">
                         <option value="__legacy__">Existing (untagged) sheet</option>
                     </select>
-                    <!-- Delete a named class. Only ever removes an EMPTY class (the
-                         server refuses if it still holds anything), so it can never
-                         take grades with it. Hidden for the untagged sheet. -->
-                    <button type="button" id="btnDeleteClass" class="cls-del" title="Delete this class (only if it's empty)" style="display:none;"><i class="bi bi-trash"></i></button>
-                </div>
-                <!-- New-class inline form (revealed when "New class…" is picked) -->
-                <div id="newClassForm" style="display:none;gap:.4rem;flex-wrap:wrap;align-items:center;margin-top:.45rem;">
-                    <input list="syList" id="selSchoolYear" placeholder="School Year" title="e.g. 2025-2026" autocomplete="off" maxlength="9"
-                        style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:.45rem .6rem;font-size:.85rem;outline:none;width:110px;">
-                    <datalist id="syList"></datalist>
-                    <select id="selSemester" title="Semester"
-                        style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:.45rem .5rem;font-size:.85rem;outline:none;">
-                        <option value="">Semester</option>
-                        <option value="1st">1st Sem</option>
-                        <option value="2nd">2nd Sem</option>
-                        <option value="Midyear">Midyear</option>
-                    </select>
-                    <input list="subjectList" id="selSubject" placeholder="Subject" autocomplete="off"
-                        style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:.45rem .6rem;font-size:.85rem;outline:none;min-width:140px;">
-                    <datalist id="subjectList"></datalist>
-                    <button type="button" class="btn btn-primary btn-sm" id="btnCreateClass"><i class="bi bi-plus-lg"></i> Create</button>
-                    <button type="button" class="btn btn-ghost btn-sm" id="btnCancelClass">Cancel</button>
+                    <!-- Delete a named class. Only grades block it (activities and
+                         status overrides) — the grading setup is cleared with the
+                         class. Hidden for the untagged sheet. -->
+                    <button type="button" id="btnDeleteClass" class="cls-del" title="Delete this class (its grading setup goes with it; refused if it still has activities)" style="display:none;"><i class="bi bi-trash"></i></button>
                 </div>
             </div>
+          </div>
+
+          <div class="gs-czone gs-czone-right">
             <div class="gs-field">
                 <label for="txtSearch">Search student</label>
                 <input type="text" id="txtSearch" placeholder="Search anything…" title="Search by name, student number, status (INC/DRP/W or a custom label), or passed/failed">
@@ -201,22 +190,59 @@
                 <label for="numPass">Passing %</label>
                 <input type="number" id="numPass" value="75" min="0" max="100">
             </div>
-            <div class="gs-spacer"></div>
-            <div class="gs-field" style="justify-content:flex-end;">
-                <label class="gs-check" title="Count students who did not take it as 0">
-                    <input type="checkbox" id="chkMissingZero" checked>
-                    Count missing as 0
-                </label>
-                <label class="gs-check" title="Excel-style: Midterm + Final terms with weighted categories, averaged">
-                    <input type="checkbox" id="chkTermMode">
-                    Term grading
-                </label>
-                <label class="gs-check" title="Add an auto Attendance column from the QR scans (present ÷ sessions). Set its weight or category in the column header to include it in the grade.">
-                    <input type="checkbox" id="chkAttendance">
-                    Attendance
-                </label>
-                <button class="btn btn-ghost btn-sm" id="btnGradeSetup" style="display:none;"><i class="bi bi-sliders"></i> Grade setup</button>
+            <!-- Sinasadyang HINDI .gs-field: doon ay naka-uppercase ang bawat
+                 <label>, kaya sumisigaw dati ang tatlong toggle na ito. -->
+            <div class="gs-opts">
+                <span class="gs-optlabel">Grading options</span>
+                <div class="gs-toggles">
+                    <label class="gs-check" title="Count students who did not take it as 0">
+                        <input type="checkbox" id="chkMissingZero" checked>
+                        Count missing as 0
+                    </label>
+                    <label class="gs-check" title="Excel-style: Midterm + Final terms with weighted categories, averaged">
+                        <input type="checkbox" id="chkTermMode">
+                        Term grading
+                    </label>
+                    <label class="gs-check" title="Add an auto Attendance column from the QR scans (present ÷ sessions). Set its weight or category in the column header to include it in the grade.">
+                        <input type="checkbox" id="chkAttendance">
+                        Attendance
+                    </label>
+                    <button class="btn btn-ghost btn-sm" id="btnGradeSetup" style="display:none;"><i class="bi bi-sliders"></i> Grade setup</button>
+                </div>
             </div>
+          </div>
+
+          <!-- New-class form (revealed when "New class…" is picked). Sariling
+               buong-lapad na hilera ito para walang naiuusog kapag lumitaw —
+               inline styles ang mga field dati, na siyang nagtutulak sa Search
+               at Passing pababa tuwing bubuksan ito. Ang display ay binabaligtad
+               ng grades.js (showNewClassForm), kaya `display:flex` ang inaasahan. -->
+          <div id="newClassForm" class="gs-newclass" style="display:none;">
+                <p class="gs-newclass-hint" id="newClassHint"><i class="bi bi-plus-circle"></i> New class</p>
+                <div class="gs-field">
+                    <label for="selSchoolYear">School Year</label>
+                    <input list="syList" id="selSchoolYear" class="gs-input" placeholder="e.g. 2025-2026" autocomplete="off" maxlength="9">
+                    <datalist id="syList"></datalist>
+                </div>
+                <div class="gs-field">
+                    <label for="selSemester">Semester</label>
+                    <select id="selSemester" class="gs-input">
+                        <option value="">— Semester —</option>
+                        <option value="1st">1st Sem</option>
+                        <option value="2nd">2nd Sem</option>
+                        <option value="Midyear">Midyear</option>
+                    </select>
+                </div>
+                <div class="gs-field gs-newclass-subj">
+                    <label for="selSubject">Subject</label>
+                    <input list="subjectList" id="selSubject" class="gs-input" placeholder="e.g. OOP" autocomplete="off">
+                    <datalist id="subjectList"></datalist>
+                </div>
+                <div class="gs-newclass-actions">
+                    <button type="button" class="btn btn-primary btn-sm" id="btnCreateClass"><i class="bi bi-plus-lg"></i> Create</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="btnCancelClass">Cancel</button>
+                </div>
+          </div>
         </div>
 
         <!-- Bulk selection bar (appears when students are selected) -->
