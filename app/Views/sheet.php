@@ -558,10 +558,28 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
                 </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:.9rem;margin:1.1rem 0 0;">
-                <p class="bulk-note" style="margin:0;"><i class="bi bi-trash3"></i> <b>Deleted:</b> every activity and score, grading categories, settings, form column and attendance setup, student status overrides, your classes, pinned sections, and your transmutation bands (back to the default scale) — across <b>all sections</b>, not just this one.</p>
-                <p class="bulk-note" style="margin:0;"><i class="bi bi-shield-check"></i> <b>Kept:</b> your FormFlow forms and their responses, the student roster, and the attendance scans. Those live in the other apps — eGradeBook only reads them. Other teachers' gradebooks are untouched.</p>
+                <?php if (\App\Core\Auth::isSuperadmin()): ?>
+                    <!-- Target picker — superadmin lang. Ang mga hindi superadmin ay
+                         walang makikita nito at "me" pa rin ang ipinapadala nila; ang
+                         server ang tumatanggi sa kahit anong iba (ResetController). -->
+                    <div class="gs-field">
+                        <label for="clearScope">What to clear</label>
+                        <select id="clearScope" class="gs-input">
+                            <option value="me">Just my gradebook</option>
+                            <option value="owner">One teacher's gradebook…</option>
+                            <option value="all">Everyone's gradebook — all teachers</option>
+                        </select>
+                    </div>
+                    <div class="gs-field" id="clearOwnerWrap" style="display:none;">
+                        <label for="clearOwner">Whose</label>
+                        <select id="clearOwner" class="gs-input"></select>
+                    </div>
+                <?php endif; ?>
+                <p class="bulk-note" style="margin:0;"><i class="bi bi-trash3"></i> <b>Deleted:</b> every activity and score, grading categories, settings, form column and attendance setup, student status overrides, classes, pinned sections, and transmutation bands (back to the default scale) — across <b>all sections</b>, not just this one.</p>
+                <p class="bulk-note" style="margin:0;"><i class="bi bi-shield-check"></i> <b>Kept:</b> the FormFlow forms and their responses, the student roster, and the attendance scans. Those live in the other apps — eGradeBook only reads them. Account access is not changed either.</p>
+                <p class="bulk-err" id="clearScopeWarn" style="display:none;margin:0;"></p>
                 <div class="gs-field">
-                    <label for="clearAllPhrase">Type <b>CLEAR ALL</b> to confirm</label>
+                    <label for="clearAllPhrase">Type <b id="clearPhraseLbl">CLEAR ALL</b> to confirm</label>
                     <input id="clearAllPhrase" placeholder="CLEAR ALL" autocomplete="off" spellcheck="false" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:.55rem .7rem;font-size:.9rem;outline:none;">
                 </div>
                 <p id="clearAllErr" class="bulk-err" style="display:none;"></p>

@@ -158,21 +158,32 @@ eGradeBook on the next login.
   (exposed as `Auth::ownerId()`, passed into every repo/controller). Any new query
   touching `grade_*` tables must filter/insert with `owner_id`, and ownership-check
   helpers like `ActivityRepo::owns()` / `FormRepo::owns()` guard mutations.
-- **`reset_all` ("Clear all my data", More ▸ Danger zone)** wipes one teacher's
-  entire gradebook — every section, every class. `App\Models\ResetRepo` holds the
-  table whitelist and two hard limits: every `DELETE` carries `owner_id = ?`
-  (**never `TRUNCATE`** — superadmin is not the only account, and one teacher must
-  not wipe another's), and only `egradebook_db`'s own `grade_*` tables are listed
-  (`formflow_db` and `bcc_qr_attendance_db` are read-only bridges, so the forms,
-  responses, roster and scans all survive). `grade_activity_scores` has no
-  `owner_id`, so it is deleted first via a join on `grade_activities` rather than
-  trusting the FK cascade, which a MyISAM table would silently ignore.
-  `grade_transmute` goes too — `TransmuteRepo::load()` reseeds the default scale
-  on the next read. `grade_schema_version` is never touched (see the
-  `Schema::migrate()` note under Conventions). Guarded by **type-to-confirm**:
-  the client enables the button only on the exact phrase `CLEAR ALL`, and
-  `ResetController` re-checks that same phrase server-side — a disabled button is
-  no defence against a stray `?api=reset_all`.
+- **`reset_all` ("Clear all", More ▸ Danger zone)** wipes a gradebook — every
+  section, every class. Three targets: `me` (anyone), `owner` (one teacher) and
+  `all` (every teacher); the last two are **superadmin-only, re-checked in
+  `ResetController`** — the dropdown is simply absent for everyone else, and a
+  hidden control is not a permission check. `reset_targets` feeds the picker
+  (also superadmin-only) from `ResetRepo::ownersWithData()`, which unions
+  `owner_id` across *all* owned tables, not just `grade_activities`, so a
+  teacher holding only leftover settings can still be cleared.
+  `App\Models\ResetRepo` holds the table whitelist and one hard limit: only
+  `egradebook_db`'s own `grade_*` tables are listed (`formflow_db` and
+  `bcc_qr_attendance_db` are read-only bridges, so the forms, responses, roster
+  and scans all survive; `grade_app_access` is app config, not gradebook data,
+  and is left alone too). It is **always `DELETE`, never `TRUNCATE`**, even for
+  `all`: `TRUNCATE` is DDL and cannot roll back, so one mid-way failure would
+  leave every teacher half-wiped with no way back. `grade_activity_scores` has
+  no `owner_id`, so a targeted clear deletes it first via a join on
+  `grade_activities` rather than trusting the FK cascade, which a MyISAM table
+  would silently ignore. `grade_transmute` goes too — `TransmuteRepo::load()`
+  reseeds the default scale on the next read. `grade_schema_version` is never
+  touched (see the `Schema::migrate()` note under Conventions). Guarded by
+  **type-to-confirm**, with a *different* phrase per target: `CLEAR ALL` for
+  yourself, `CLEAR <username>` for another teacher, `CLEAR EVERYTHING` for all.
+  That is deliberate — `CLEAR ALL` becomes muscle memory, and destroying
+  someone else's work should not be reachable by the same reflex. The server
+  recomputes the required phrase from the target and compares it itself, so a
+  disabled button is never the only defence against a stray `?api=reset_all`.
 
 ## Class scoping (school year / semester / subject)
 
@@ -269,7 +280,8 @@ Layers under `app/`:
   holds `$db`/`$ownerId`, gives `json`/`ok`/`fail`/`post`/`get`/`classScope()`
   helpers), `ClassScope` (the class-scope DTO — see "Class scoping"), and
   `Router` (maps every `?api=` action name → `[Controller::class, 'method']` —
-  **register new actions here**; all 36 actions are listed in `Core/Router.php`).
+  **register new actions here**; `Core/Router.php`'s `MAP` is the complete list
+  — read it rather than trusting a count quoted here, which goes stale).
 - **`Models/`** — one owner-scoped repository per table/domain. Grade tables:
   `ActivityRepo`, `ScoreRepo`, `CategoryRepo`, `SettingsRepo`, `TransmuteRepo`
   (holds `DEFAULT_EQUIV`), `StatusRepo`, `FormMetaRepo`, `AttendanceRepo`,

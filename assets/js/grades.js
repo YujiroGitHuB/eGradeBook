@@ -3303,55 +3303,135 @@ async function setAccess(cb, adminId, grant) {
     showToastSafe(grant ? 'Access granted.' : 'Access removed. Their gradebook is untouched.', 'success');
 }
 
-/* ── Clear all my data (danger zone) ─────────────────────────
-   Ibinabalik sa walang laman ang buong gradebook ng gurong naka-log in —
-   lahat ng section, lahat ng klase. Hindi ito mababawi, kaya:
+/* ── Clear all (danger zone) ─────────────────────────────────
+   Ibinabalik sa walang laman ang isang gradebook — lahat ng section, lahat ng
+   klase. Tatlong target: sarili, isang guro, o lahat (superadmin ang huling
+   dalawa). Hindi ito mababawi, kaya:
 
    - Type-to-confirm, hindi confirm(): kailangang i-type nang eksakto ang
-     CLEAR_PHRASE bago mag-enable ang button. Ang isang OK/Cancel ay masyadong
+     parirala bago mag-enable ang button. Ang isang OK/Cancel ay masyadong
      malapit sa mga OK/Cancel na pinipindot mo maghapon.
-   - Sinusuri rin ng SERVER ang parehong salita — hindi sapat na hadlang ang
-     isang naka-disable na button (tingnan ang ResetController).
+   - IBA ang parirala kada target. Ang "CLEAR ALL" ay nakasanayan na at madaling
+     maulit nang hindi iniisip — hindi dapat kasingdali niyon ang pagbura ng
+     datos ng ibang tao, kaya ang username nila mismo ang tinitipa.
+   - Sinusuri rin ng SERVER ang parehong parirala AT ang superadmin — hindi
+     sapat na hadlang ang naka-disable na button o nakatagong dropdown
+     (tingnan ang ResetController).
    - Buo ang FormFlow forms/sagot at ang attendance roster/scans: binabasa lang
      ang mga iyon ng eGradeBook, hindi kanya. */
 const CLEAR_PHRASE = 'CLEAR ALL';
+let clearOwners = [];   // [{id, username, full_name, activities, orphan}]
+let CLEAR_ME = 0;       // sariling owner_id, galing sa reset_targets
 
-function openClearAll() {
+function clearScopeValue() { return $('clearScope') ? $('clearScope').value : 'me'; }
+
+/* Ang pariralang kailangan para sa kasalukuyang pinili. Kailangang tumugma ito
+   sa kinakalkula ng ResetController — kung magkaiba, isang malinaw na "Type X
+   to confirm" ang isasagot ng server sa halip na tumakbo. */
+function clearPhraseFor() {
+    const scope = clearScopeValue();
+    if (scope === 'all') return 'CLEAR EVERYTHING';
+    if (scope === 'owner') {
+        const id = parseInt($('clearOwner').value);
+        const o = clearOwners.find(x => x.id === id);
+        /* Ang sarili mong id na pinili bilang "isang guro" ay itinuturing pa
+           ring sarili — ganoon din ang server. */
+        if (o && o.id !== CLEAR_ME) return 'CLEAR ' + o.username;
+    }
+    return CLEAR_PHRASE;
+}
+
+function refreshClearScope() {
+    const scope = clearScopeValue();
+    const ownerWrap = $('clearOwnerWrap');
+    if (ownerWrap) ownerWrap.style.display = scope === 'owner' ? 'flex' : 'none';
+
+    const phrase = clearPhraseFor();
+    $('clearPhraseLbl').textContent = phrase;
+    $('clearAllPhrase').placeholder = phrase;
+    $('clearAllPhrase').value = '';
+    $('clearAllApply').disabled = true;
+    $('clearAllErr').style.display = 'none';
+
+    /* Malinaw na babala kapag hindi ikaw ang tinatamaan. */
+    const warn = $('clearScopeWarn');
+    if (!warn) return;
+    if (scope === 'all') {
+        warn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> This wipes the gradebook of <b>every teacher</b>, including yours. They are not warned and cannot undo it.';
+        warn.style.display = 'block';
+    } else if (scope === 'owner' && parseInt($('clearOwner').value) !== CLEAR_ME) {
+        const o = clearOwners.find(x => x.id === parseInt($('clearOwner').value));
+        warn.innerHTML = `<i class="bi bi-exclamation-triangle"></i> This wipes <b>${escHtml(o ? o.full_name : 'that teacher')}</b>'s gradebook. They are not warned and cannot undo it.`;
+        warn.style.display = 'block';
+    } else {
+        warn.style.display = 'none';
+    }
+}
+
+async function openClearAll() {
     $('clearAllPhrase').value = '';
     $('clearAllErr').style.display = 'none';
     $('clearAllApply').disabled = true;
+    if ($('clearScope')) $('clearScope').value = 'me';
+    refreshClearScope();
     $('clearAllModal').classList.add('show');
     setTimeout(() => $('clearAllPhrase').focus(), 60);
+
+    /* Ang listahan ng guro ay superadmin lang — walang #clearScope kung hindi
+       ikaw iyon, kaya hindi na ito hinihingi. */
+    if (!$('clearScope')) return;
+    const d = await apiGet({ api: 'reset_targets' });
+    if (!d.success) return;
+    CLEAR_ME = d.me;
+    clearOwners = d.owners || [];
+    $('clearOwner').innerHTML = clearOwners.map(o => {
+        const mine = o.id === CLEAR_ME ? ' (you)' : '';
+        const n = `${o.activities} activit${o.activities === 1 ? 'y' : 'ies'}`;
+        return `<option value="${o.id}">${escHtml(o.full_name)}${mine} — ${n}</option>`;
+    }).join('') || '<option value="0">No other gradebooks yet</option>';
+    refreshClearScope();
 }
 function closeClearAll() { $('clearAllModal').classList.remove('show'); }
 
 async function applyClearAll() {
     const phrase = $('clearAllPhrase').value.trim();
     const err = $('clearAllErr');
-    if (phrase !== CLEAR_PHRASE) {
-        err.textContent = `Type ${CLEAR_PHRASE} exactly to confirm.`;
+    const want = clearPhraseFor();
+    if (phrase !== want) {
+        err.textContent = `Type ${want} exactly to confirm.`;
         err.style.display = 'block';
         return;
     }
+    const scope = clearScopeValue();
     const btn = $('clearAllApply');
     btn.disabled = true;
-    const d = await apiPost({ api: 'reset_all', confirm: phrase });
+    const d = await apiPost({
+        api: 'reset_all',
+        target: scope,
+        owner_id: scope === 'owner' ? ($('clearOwner').value || 0) : 0,
+        confirm: phrase,
+    });
     if (!d.success) {
         btn.disabled = false;
-        err.textContent = d.message || 'Could not clear your gradebook.';
+        err.textContent = d.message || 'Could not clear the gradebook.';
         err.style.display = 'block';
         return;
     }
     closeClearAll();
 
-    /* Kalimutan ang naka-save na klase bago mag-reload: wala na ang klaseng
-       iyon, at kung mananatili ito sa localStorage ay bubuksan muli ng app
-       ang isang pangalan na kaka-bura lang natin (at maire-rehistro itong
-       muli ng SheetController). Buong reload — mas malinis kaysa hulaan
-       kung aling bahagi ng SHEET ang dapat i-reset. */
-    try { localStorage.removeItem(CLASS_KEY); } catch (e) {}
     const n = Object.values(d.deleted || {}).reduce((a, b) => a + b, 0);
-    showToastSafe(`Gradebook cleared — ${n} row${n === 1 ? '' : 's'} deleted. Reloading…`, 'success');
+    const msg = `Cleared ${d.label || 'the gradebook'} — ${n} row${n === 1 ? '' : 's'} deleted.`;
+
+    /* Kung hindi ang SARILI mong datos ang nabura, walang dahilan para i-reload
+       — buo pa rin ang sheet na nakabukas sa iyo. Ang pag-reload ay para lang
+       sa nabura mo mismo: kalimutan muna ang naka-save na klase, dahil wala na
+       iyon at bubuksan itong muli ng app (at maire-rehistro ng SheetController). */
+    const hitMe = scope === 'all' || (scope === 'me')
+        || (scope === 'owner' && parseInt($('clearOwner').value) === CLEAR_ME);
+    if (!hitMe) { showToastSafe(msg, 'success'); return; }
+
+    try { localStorage.removeItem(CLASS_KEY); } catch (e) {}
+    showToastSafe(msg + ' Reloading…', 'success');
     setTimeout(() => location.reload(), 900);
 }
 
@@ -3516,12 +3596,17 @@ if ($('accessClose')) $('accessClose').addEventListener('click', closeAccessModa
 $('btnClearAll').addEventListener('click', openClearAll);
 $('clearAllCancel').addEventListener('click', closeClearAll);
 $('clearAllApply').addEventListener('click', applyClearAll);
-/* Ang button ay nabubuhay lang sa eksaktong salita — ito ang buong bigat ng
-   type-to-confirm, kaya walang trim-tolerance sa case o sa laman. */
+/* Ang button ay nabubuhay lang sa eksaktong parirala — ito ang buong bigat ng
+   type-to-confirm, kaya walang trim-tolerance sa case o sa laman. Nagbabago ang
+   parirala ayon sa target, kaya clearPhraseFor() ang tinatanong, hindi konstante. */
 $('clearAllPhrase').addEventListener('input', e => {
-    $('clearAllApply').disabled = e.target.value.trim() !== CLEAR_PHRASE;
+    $('clearAllApply').disabled = e.target.value.trim() !== clearPhraseFor();
     $('clearAllErr').style.display = 'none';
 });
+/* Palit ng target → ibang parirala, ibang babala, at blangko ulit ang kahon
+   (hindi dapat madala ang natipa na para sa ibang target). */
+if ($('clearScope')) $('clearScope').addEventListener('change', refreshClearScope);
+if ($('clearOwner')) $('clearOwner').addEventListener('change', refreshClearScope);
 $('clearAllPhrase').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !$('clearAllApply').disabled) applyClearAll();
 });

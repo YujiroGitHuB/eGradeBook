@@ -71,8 +71,9 @@ class Router
         'create_class'          => [ClassController::class, 'create'],
         'delete_class'          => [ClassController::class, 'delete'],
         'retag_class'           => [ClassController::class, 'retag'],
-        // danger zone — wipes THIS teacher's whole gradebook (type-to-confirm)
+        // danger zone — wipes a gradebook (type-to-confirm; me / one teacher / all)
         'reset_all'             => [ResetController::class, 'clearAll'],
+        'reset_targets'         => [ResetController::class, 'targets'],
         // app allowlist — SUPERADMIN ONLY (re-checked inside the controller)
         'access_list'           => [AccessController::class, 'listAccounts'],
         'set_access'            => [AccessController::class, 'setAccess'],
