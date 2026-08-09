@@ -375,7 +375,13 @@ function updateDeleteClassBtn() {
 async function deleteCurrentClass() {
     if (!SHEET || classIsLegacy()) return;
     const label = classLabel(CLASS);
-    if (!confirm(`Delete the class "${label}"?\n\nIts grading setup (settings, categories, form and attendance column setup) is removed with it. No scores are touched — if the class still has activities, this will be refused.`)) return;
+    if (!await uiConfirm({
+        title: 'Delete this class?',
+        message: `<b>${escHtml(label)}</b> — its grading setup (settings, categories, form and attendance column setup) is removed with it. No scores are touched; if the class still has activities, this will be refused.`,
+        ok: 'Delete class',
+        icon: 'bi-trash',
+        danger: true,
+    })) return;
 
     const d = await apiPost({ api: 'delete_class', section: SHEET.section });
     if (!d.success) { showToastSafe(d.message || 'Could not delete the class.', 'error'); return; }
@@ -2344,10 +2350,13 @@ function renderSetup() {
 async function copyCategories(from, to) {
     const labelOf = t => (t === 'midterm' ? 'Midterm' : 'Final');
     const clash = (SHEET.categories || []).some(c => c.term === to);
-    if (clash && !confirm(
-        `Copy ${labelOf(from)}'s categories into ${labelOf(to)}?\n\n` +
-        `Categories with the same name get ${labelOf(from)}'s weight. New ones are added. ` +
-        `Nothing in ${labelOf(to)} is deleted.`)) return;
+    if (clash && !await uiConfirm({
+        title: `Copy into ${labelOf(to)}?`,
+        message: `Categories with the same name take <b>${escHtml(labelOf(from))}</b>'s weight, and new ones are added. `
+            + `Nothing in ${escHtml(labelOf(to))} is deleted.`,
+        ok: 'Copy categories',
+        icon: 'bi-copy',
+    })) return;
 
     const d = await apiPost({ api: 'copy_categories', section: SHEET.section, from_term: from, to_term: to });
     if (!d.success) { showToastSafe(d.message || 'Could not copy the categories.', 'error'); return; }
@@ -2451,11 +2460,17 @@ function tmAddBand() {
    hinahawakan ng "Clear all" ang transmutation (tingnan ang ResetRepo), dahil
    ang tahimik na pagpapalit ng iskala ay nagbabago ng grado nang walang
    anumang nagpapakita kung bakit. */
-function tmResetDefaults() {
+async function tmResetDefaults() {
     const same = tmDraft.length === DEFAULT_EQUIV.length
         && DEFAULT_EQUIV.every((d, i) => Number(tmDraft[i].min) === d.min && Number(tmDraft[i].point) === d.point);
     if (same) { showToastSafe('Already the default scale.', 'success'); return; }
-    if (!confirm('Replace the bands in this table with the default PH college scale?\n\nNothing is saved until you press Save table.')) return;
+    if (!await uiConfirm({
+        title: 'Reset to the default scale?',
+        message: 'The bands in this table are replaced with the standard PH college scale. '
+            + '<b>Nothing is saved</b> until you press Save table — Cancel still puts your bands back.',
+        ok: 'Load default scale',
+        icon: 'bi-arrow-counterclockwise',
+    })) return;
     tmDraft = DEFAULT_EQUIV.map(b => ({ min: b.min, point: b.point }));
     renderTm();
     showToastSafe('Default scale loaded — press Save table to keep it.', 'success');
@@ -3213,6 +3228,57 @@ if (typeof escHtml !== 'function') {
     window.escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/* ── In-app confirmation (kapalit ng native confirm) ─────────
+   Ang confirm() ng browser ay nagpapakita ng "lexon.free.nf says", walang
+   pormat, at hindi kayang bigyang-diin ang pangalan ng tinatamaan — mukha
+   itong babala ng browser, hindi bahagi ng sistema. Isang modal na sinusundan
+   ang parehong pattern ng iba rito, na nagbabalik ng Promise<boolean>:
+
+       if (!await uiConfirm({ title, message })) return;
+
+   Ang `message` ay HTML (para sa <b> sa pangalan) — kaya escHtml() ang
+   anumang galing sa datos, gaya ng ginagawa sa lahat ng tumatawag dito. */
+let uiConfirmResolve = null;
+
+function uiConfirm({ title, message, ok = 'Confirm', icon = 'bi-question-circle', danger = false }) {
+    /* Nasa sheet.php ang HTML ng modal. Kapag na-upload ang grades.js pero
+       hindi ang view (madaling mangyari sa manu-manong deploy), wala ang
+       #uiConfirmModal — at ang isang Promise na walang sasagot ay hahantong sa
+       await na nakabitin, na para bang na-freeze ang app. Mas mabuting bumalik
+       sa dating dialog ng browser: pangit, pero gumagana. */
+    if (!$('uiConfirmModal')) {
+        const plain = String(message).replace(/<[^>]*>/g, '');
+        return Promise.resolve(window.confirm(title + '\n\n' + plain));
+    }
+    return new Promise(resolve => {
+        /* Isang tanong lang ang nakabukas. Kung may naiwang hindi nasagot,
+           ituring itong "hindi" para hindi kailanman ma-iwang nakabitin ang
+           await ng naunang tumawag. */
+        if (uiConfirmResolve) { const old = uiConfirmResolve; uiConfirmResolve = null; old(false); }
+        uiConfirmResolve = resolve;
+
+        $('uiConfirmTitle').textContent = title;
+        $('uiConfirmMsg').innerHTML = message;
+        $('uiConfirmIc').className = 'bi ' + icon;
+        $('uiConfirmIcWrap').classList.toggle('danger', !!danger);
+        const yes = $('uiConfirmYes');
+        yes.innerHTML = escHtml(ok);
+        yes.className = 'btn ' + (danger ? 'btn-danger' : 'btn-primary');
+
+        $('uiConfirmModal').classList.add('show');
+        /* Sa mapanirang tanong, ang Cancel ang naka-focus — hindi dapat
+           masagot ng isang Enter ang isang bagay na hindi na mababawi. */
+        setTimeout(() => (danger ? $('uiConfirmNo') : yes).focus(), 60);
+    });
+}
+
+function uiConfirmClose(answer) {
+    const r = uiConfirmResolve;
+    uiConfirmResolve = null;
+    $('uiConfirmModal').classList.remove('show');
+    if (r) r(answer);
+}
+
 /* ── Tag as class (re-tag the current sheet into a named class) ── */
 function openRetag() {
     if (!SHEET) { showToastSafe('Open a section first.', 'error'); return; }
@@ -3449,6 +3515,20 @@ async function applyClearAll() {
     try { localStorage.removeItem(CLASS_KEY); } catch (e) {}
     showToastSafe(msg + ' Reloading…', 'success');
     setTimeout(() => location.reload(), 900);
+}
+
+/* In-app confirm: bawat labasan ay dapat SUMAGOT, kung hindi ay mananatiling
+   nakabitin ang await ng tumawag at parang na-freeze ang app. Apat lang ang
+   labasan — OK, Cancel, backdrop, Escape. */
+if ($('uiConfirmModal')) {
+    $('uiConfirmYes').addEventListener('click', () => uiConfirmClose(true));
+    $('uiConfirmNo').addEventListener('click', () => uiConfirmClose(false));
+    $('uiConfirmModal').addEventListener('click', e => {
+        if (e.target === $('uiConfirmModal')) uiConfirmClose(false);
+    });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && uiConfirmResolve) uiConfirmClose(false);
+    });
 }
 
 /* ── wire up ────────────────────────────────────────────── */

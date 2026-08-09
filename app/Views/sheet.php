@@ -480,6 +480,27 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
         </div>
     </div>
 
+    <!-- Generic confirmation — kapalit ng native confirm(), na labas sa disenyo
+         ng app (at nagpapakita ng "lexon.free.nf says", na parang babala ng
+         browser at hindi bahagi ng sistema). Iisa lang ang modal na ito para sa
+         lahat ng tanong; pinupuno ito ng uiConfirm() sa grades.js, na
+         nagbabalik ng Promise<boolean>. -->
+    <div class="modal-backdrop" id="uiConfirmModal">
+        <div class="modal gs-maccent" style="max-width:460px;">
+            <div class="gs-mhead">
+                <div class="gs-mhead-ic" id="uiConfirmIcWrap"><i class="bi bi-question-circle" id="uiConfirmIc"></i></div>
+                <div>
+                    <h3 class="gs-mtitle" id="uiConfirmTitle">Are you sure?</h3>
+                    <p class="gs-msub" id="uiConfirmMsg"></p>
+                </div>
+            </div>
+            <div class="modal-actions" style="margin-top:1.3rem;">
+                <button class="btn btn-ghost" id="uiConfirmNo">Cancel</button>
+                <button class="btn btn-primary" id="uiConfirmYes">Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Tag as Class Modal (re-tag the current sheet into a named class) -->
     <div class="modal-backdrop" id="retagModal">
         <div class="modal gs-maccent" style="max-width:480px;">

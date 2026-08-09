@@ -366,6 +366,17 @@ object, and computes grades client-side. Grading logic to preserve when editing:
   A category whose columns are all unchecked contributes 0% at full weight,
   matching how a category with no activities has always behaved.
 
+- **Never call the browser's `confirm()`** — use `await uiConfirm({title,
+  message, ok, icon, danger})` in `grades.js`, which drives the shared
+  `#uiConfirmModal` and resolves to a boolean. The native dialog is stamped
+  "<host> says", ignores the theme, and can't emphasise *what* is about to be
+  destroyed. `message` is inserted as HTML so a name can be bolded — run
+  anything from data through `escHtml()` first. Every exit (OK, Cancel,
+  backdrop, Escape) must resolve the promise, or the caller's `await` hangs and
+  the app looks frozen; opening a second confirm resolves the first as `false`
+  for the same reason. Destructive prompts pass `danger: true`, which focuses
+  Cancel so a stray Enter cannot confirm them.
+
 `global.js` provides shared UI helpers (`showToast`, `escHtml`, theme toggle —
 theme persisted in `localStorage` under `ff_theme`, shared with FormFlow).
 `detection.js` warns users who open the app inside in-app browsers
