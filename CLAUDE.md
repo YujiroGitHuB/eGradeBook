@@ -366,8 +366,9 @@ object, and computes grades client-side. Grading logic to preserve when editing:
   A category whose columns are all unchecked contributes 0% at full weight,
   matching how a category with no activities has always behaved.
 
-- **PDF/print header** — school, department, title, faculty and a footer line
-  live in `grade_report_header`, **one row per teacher, no class scope**
+- **PDF/print header** — a letterhead **banner image** plus school, department,
+  title, faculty and a footer line live in `grade_report_header`, **one row per
+  teacher, no class scope**
   (`ReportRepo`, `get_report_header` / `save_report_header`, More ▸ Output ▸
   Report header…). One school and one signature serve every section and term,
   so scoping it per class would just mean retyping. **A blank field is omitted
@@ -381,6 +382,22 @@ object, and computes grades client-side. Grading logic to preserve when editing:
   does not exist in this app, so "Faculty:" was silently blank on every PDF and
   printout; `reportFaculty()` now reads the saved name, falling back to
   `.profile-name`.
+- **The banner is a data URI in the database, not a file.** There is no upload
+  handling anywhere in eGradeBook and no writable folder to rely on in the
+  "drop it in htdocs" deploy, so `rhReadImage()` downscales to 1600px on a
+  canvas, flattens onto white (transparent PNGs go black in some PDF viewers)
+  and encodes JPEG q0.85 — ~240KB for a full-width letterhead. It is stored in
+  `banner MEDIUMTEXT` with `banner_w/h`, which jsPDF needs for the aspect ratio.
+  Two rules protect the layout and the page: the data URI **must** match
+  `data:image/(png|jpeg);base64,…` server-side — **SVG is deliberately refused**
+  because it is markup that can carry script and jsPDF cannot draw it — and
+  `drawBanner()` caps the drawn height (80pt landscape, 70pt portrait), shrinking
+  the *width* to match so a square logo cannot eat half the page. `get_report_header`
+  returns only a `has_banner` flag and the dimensions; the image itself comes
+  from the separate `get_report_banner`, because the header call runs on **every
+  page load** for the print header and must stay small. When a banner is set,
+  School and Department are skipped in all three outputs — the letterhead
+  already shows them.
 - **Never call the browser's `confirm()`** — use `await uiConfirm({title,
   message, ok, icon, danger})` in `grades.js`, which drives the shared
   `#uiConfirmModal` and resolves to a boolean. The native dialog is stamped

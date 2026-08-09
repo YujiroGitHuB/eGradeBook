@@ -451,6 +451,48 @@ main {
     color: var(--danger);
 }
 
+/* ── Report header modal: banner preview ── */
+.rh-banner {
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    background: var(--surface2);
+    padding: .5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 62px;
+    overflow: hidden;
+}
+
+/* Puting likod kahit sa dark theme: puti ang papel, at puti rin ang likod ng
+   letterhead — dapat ganoon ang makita mo rito para walang sorpresa sa PDF. */
+.rh-banner img {
+    width: 100%;
+    height: auto;
+    max-height: 120px;
+    object-fit: contain;
+    background: #fff;
+    border-radius: 6px;
+}
+
+.rh-banner-empty {
+    font-size: .78rem;
+    color: var(--muted);
+}
+
+.rh-banner-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .4rem;
+    margin-top: .45rem;
+}
+
+.rh-banner-hint {
+    font-size: .74rem;
+    color: var(--muted);
+}
+
 /* ── Shared confirm modal ────────────────────────────────────
    Laging IBABAW ng modal na nagbukas dito. Pareho silang .modal-backdrop
    (z-index 200), kaya ang mas huli sa DOM ang nananalo — at nauuna ang
@@ -1652,6 +1694,14 @@ table.gs tbody td.fin-cell {
         margin: 0 0 8px;
         color: #000;
     }
+    /* Letterhead banner — buong lapad ng nakalimbag na lugar. */
+    .gs-print-head .gph-banner {
+        display: block;
+        width: 100%;
+        height: auto;
+        margin-bottom: 6px;
+    }
+
     /* Paaralan/departamento mula sa Report header — pareho ng inilalagay sa
        mga PDF, para iisa ang anyo ng lahat ng lumalabas sa papel. Hindi
        nire-render ang mga ito kapag blangko, kaya walang bakanteng linya. */

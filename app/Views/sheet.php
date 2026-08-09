@@ -495,6 +495,22 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
                 </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:.9rem;margin:1.1rem 0 0;">
+                <!-- Letterhead banner. Ang browser ang nagpapaliit at nag-e-encode
+                     bilang data URI — walang upload handling ang app na ito, at
+                     karaniwang walang masusulatang folder sa shared host. -->
+                <div class="gs-field">
+                    <label>Letterhead banner</label>
+                    <div class="rh-banner" id="rhBannerBox">
+                        <img id="rhBannerImg" alt="" style="display:none;">
+                        <div class="rh-banner-empty" id="rhBannerEmpty"><i class="bi bi-image"></i> No banner — the text below is used instead</div>
+                    </div>
+                    <div class="rh-banner-actions">
+                        <input type="file" id="rhBannerFile" accept="image/png,image/jpeg" style="display:none;">
+                        <button type="button" class="btn btn-ghost btn-sm" id="rhBannerPick"><i class="bi bi-upload"></i> Choose image…</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="rhBannerClear" style="display:none;"><i class="bi bi-x-lg"></i> Remove</button>
+                        <span class="rh-banner-hint" id="rhBannerHint">PNG or JPG. A wide letterhead strip works best.</span>
+                    </div>
+                </div>
                 <div class="gs-field">
                     <label for="rhSchool">School / Institution</label>
                     <input id="rhSchool" class="gs-input" maxlength="150" autocomplete="off" placeholder="e.g. Bulacan Christian College">
@@ -515,7 +531,7 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
                     <label for="rhNote">Footer line</label>
                     <input id="rhNote" class="gs-input" maxlength="255" autocomplete="off" placeholder="e.g. Prepared by: ______   Noted by: ______">
                 </div>
-                <p class="bulk-note" style="margin:0;"><i class="bi bi-info-circle"></i> Leave a field blank to keep it off the PDF entirely. This applies to <b>all your sections</b>, not just this one.</p>
+                <p class="bulk-note" style="margin:0;"><i class="bi bi-info-circle"></i> Leave a field blank to keep it off the PDF entirely. With a banner set, <b>School</b> and <b>Department</b> are skipped — the banner already shows them. This applies to <b>all your sections</b>, not just this one.</p>
                 <p id="rhErr" class="bulk-err" style="display:none;"></p>
             </div>
             <div class="modal-actions" style="margin-top:1.3rem;">

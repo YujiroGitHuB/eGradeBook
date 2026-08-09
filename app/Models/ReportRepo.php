@@ -37,21 +37,86 @@ class ReportRepo
         $this->ownerId = $ownerId;
     }
 
+    /* Tanging mga format na ligtas ilagay sa isang <img src> AT kayang basahin
+       ng jsPDF. Sadyang WALANG SVG: markup iyon, may kayang magdala ng script,
+       at hindi rin ito iginuguhit ng jsPDF. */
+    private const BANNER_RE = '#^data:image/(png|jpeg);base64,[A-Za-z0-9+/=]+$#';
+
+    /* ~3MB ng base64 (≈2.2MB na larawan). Pinapaliit naman ng kliyente sa
+       ~1600px bago magpadala; ito ang hangganan kung sakaling hindi. */
+    private const BANNER_MAX = 3145728;
+
     /* Laging kumpleto ang ibinabalik na array (blangko kung walang row),
-       kaya hindi na kailangang mag-isa-isa ng null check ang tumatawag. */
+       kaya hindi na kailangang mag-isa-isa ng null check ang tumatawag.
+
+       SADYANG hindi kasama rito ang mismong `banner` — daan-daang KB iyon, at
+       hinihingi ito sa bawat page load para sa print header. Ang bandila at
+       sukat lang ang ipinapadala; ang datos ay hiwalay na hinihingi kapag
+       kailangan na talaga (tingnan ang getBanner). */
     public function get(): array
     {
         $out = array_fill_keys(self::FIELDS, '');
+        $out['has_banner'] = false;
+        $out['banner_w'] = 0;
+        $out['banner_h'] = 0;
+
         $stmt = $this->db->prepare(
-            "SELECT school, department, title, faculty, note FROM grade_report_header WHERE owner_id = ?"
+            "SELECT school, department, title, faculty, note, banner_w, banner_h,
+                    (banner IS NOT NULL AND banner <> '') AS hb
+               FROM grade_report_header WHERE owner_id = ?"
         );
         $stmt->bind_param('i', $this->ownerId);
         $stmt->execute();
         if ($row = $stmt->get_result()->fetch_assoc()) {
             foreach (self::FIELDS as $f) $out[$f] = (string)($row[$f] ?? '');
+            $out['has_banner'] = ((int)$row['hb'] === 1);
+            $out['banner_w'] = (int)$row['banner_w'];
+            $out['banner_h'] = (int)$row['banner_h'];
         }
         $stmt->close();
         return $out;
+    }
+
+    /* Ang data URI mismo ('' kung wala). Hiwalay na tawag — tingnan ang get(). */
+    public function getBanner(): string
+    {
+        $stmt = $this->db->prepare("SELECT banner FROM grade_report_header WHERE owner_id = ?");
+        $stmt->bind_param('i', $this->ownerId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return (string)($row['banner'] ?? '');
+    }
+
+    /* Itakda o alisin ang banner. $dataUri = '' ay nag-aalis.
+       Nagbabalik ng '' kung tinanggap, o mensahe ng pagkakamali. */
+    public function saveBanner(string $dataUri, int $w, int $h): string
+    {
+        $dataUri = trim($dataUri);
+
+        if ($dataUri === '') {
+            $stmt = $this->db->prepare(
+                "UPDATE grade_report_header SET banner=NULL, banner_w=0, banner_h=0 WHERE owner_id = ?"
+            );
+            $stmt->bind_param('i', $this->ownerId);
+            $stmt->execute();
+            $stmt->close();
+            return '';
+        }
+
+        if (strlen($dataUri) > self::BANNER_MAX) return 'That image is too large. Try a smaller one.';
+        if (!preg_match(self::BANNER_RE, $dataUri)) return 'Use a PNG or JPG image.';
+        if ($w < 1 || $h < 1) return 'Could not read the image size.';
+
+        /* Ang row ay puwedeng wala pa kung banner lang ang unang itinakda. */
+        $stmt = $this->db->prepare(
+            "INSERT INTO grade_report_header (owner_id, banner, banner_w, banner_h) VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE banner=VALUES(banner), banner_w=VALUES(banner_w), banner_h=VALUES(banner_h)"
+        );
+        $stmt->bind_param('isii', $this->ownerId, $dataUri, $w, $h);
+        $stmt->execute();
+        $stmt->close();
+        return '';
     }
 
     /* Buong palit — ang lima ay laging magkasamang ipinapadala ng modal.

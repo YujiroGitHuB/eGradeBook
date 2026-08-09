@@ -1134,10 +1134,15 @@ function render() {
     const clsAvg   = pctN ? (pctSum / pctN).toFixed(1) + '%' : '—';
     const passRate = pctN ? Math.round(passCount / pctN * 100) + '%' : '—';
     const _rh = REPORT_HDR || {};
+    /* Ang banner ay ipinapakita lang kung nakuha na — hindi hinihintay ng
+       render. Kapag may banner, nakasulat na roon ang paaralan at departamento,
+       kaya hindi na inuulit ang dalawa. */
+    const _bn = (_rh.has_banner && REPORT_BANNER) ? REPORT_BANNER : '';
     const printHead = `
         <div class="gs-print-head">
-            ${_rh.school ? `<div class="gph-school">${escHtml(_rh.school)}</div>` : ''}
-            ${_rh.department ? `<div class="gph-dept">${escHtml(_rh.department)}</div>` : ''}
+            ${_bn ? `<img class="gph-banner" src="${escAttr(_bn)}" alt="">` : ''}
+            ${!_bn && _rh.school ? `<div class="gph-school">${escHtml(_rh.school)}</div>` : ''}
+            ${!_bn && _rh.department ? `<div class="gph-dept">${escHtml(_rh.department)}</div>` : ''}
             <div class="gph-title">${escHtml(_rh.title || 'Grading Sheet')}</div>
             <div class="gph-meta">
                 <span><b>Section:</b> ${escHtml(SHEET.section || '—')}</span>
@@ -2630,6 +2635,7 @@ function loadExternalScript(src) {
    dahil ang "Export all" ay dumadaan sa maraming section at hindi dapat
    umuulit ang tawag kada pahina. */
 let REPORT_HDR = null;
+let REPORT_BANNER = null;   // ang data URI; hiwalay na hinihingi (tingnan sa ibaba)
 let rhSuggestName = '';
 
 async function loadReportHeader() {
@@ -2638,9 +2644,50 @@ async function loadReportHeader() {
     /* Kapag pumalya (walang network, lumang server), blangko — mas mabuting
        mawalan ng ulo ang PDF kaysa hindi tuluyang ma-export. */
     REPORT_HDR = (d && d.success && d.header) ? d.header
-        : { school: '', department: '', title: '', faculty: '', note: '' };
+        : { school: '', department: '', title: '', faculty: '', note: '', has_banner: false, banner_w: 0, banner_h: 0 };
     if (d && d.suggest_faculty) rhSuggestName = d.suggest_faculty;
     return REPORT_HDR;
+}
+
+/* Ang mismong larawan — daan-daang KB, kaya HINDI ito kasama sa
+   get_report_header (na tumatakbo sa bawat page load para sa print header).
+   Dito lang ito hinihingi, kapag may aktuwal nang iguguhit. */
+async function loadReportBanner() {
+    if (REPORT_BANNER !== null) return REPORT_BANNER;
+    const h = await loadReportHeader();
+    if (!h.has_banner) { REPORT_BANNER = ''; return ''; }
+    const d = await apiGet({ api: 'get_report_banner' });
+    REPORT_BANNER = (d && d.success && d.banner) ? d.banner : '';
+    return REPORT_BANNER;
+}
+
+/* 'PNG' o 'JPEG' para sa jsPDF — hindi ito nahuhulaan ng addImage sa data URI
+   nang maaasahan, kaya tahasang sinasabi. */
+function bannerFormat(dataUri) {
+    return /^data:image\/jpeg/i.test(dataUri) ? 'JPEG' : 'PNG';
+}
+
+/* Iguhit ang banner na kasinlapad ng nakasulatang lugar; ibinabalik ang bagong
+   y. Ang taas ay mula sa TUNAY na ratio ng larawan — kung ipipilit ang isang
+   nakapirming taas, mababanat ang letterhead. */
+function drawBanner(doc, dataUri, hdr, left, top, width, maxH) {
+    const w = hdr.banner_w || 0, h = hdr.banner_h || 0;
+    if (!dataUri || w < 1 || h < 1) return top;
+
+    let drawW = width, drawH = width * (h / w);
+    /* Isang mahabang letterhead strip ay manipis, pero walang pumipigil sa
+       guro na mag-upload ng parisukat na logo — at iyon ay kakainin ang
+       kalahati ng pahina. Kapag lumampas sa taas, ang LAPAD ang binabawasan,
+       kaya hindi nababanat ang larawan. */
+    const cap = maxH || 90;
+    if (drawH > cap) { drawH = cap; drawW = cap * (w / h); }
+
+    try {
+        doc.addImage(dataUri, bannerFormat(dataUri), left, top, drawW, drawH);
+    } catch (e) {
+        return top;   // sirang larawan — huwag ipabagsak ang buong export
+    }
+    return top + drawH + 12;
 }
 
 /* Ang pangalan ng gurong ilalagay sa report: ang tahasang itinakda muna, tapos
@@ -2663,6 +2710,17 @@ function drawReportHead(doc, hdr, opts) {
     const fallbackTitle = o.fallbackTitle || 'eGradeBook — Grade Sheet';
     let y = o.top || 42;
 
+    /* May banner? Iyon na ang letterhead — nakasulat na roon ang paaralan at
+       ang departamento, kaya hindi na inuulit ang dalawa sa ibaba nito. Ang
+       pamagat lang ang natitira. */
+    if (o.banner) {
+        y = drawBanner(doc, o.banner, hdr, left, y - 18, o.width, 80);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(20);
+        doc.text(hdr.title || fallbackTitle, left, y); y += 16;
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(0);
+        return y;
+    }
+
     if (hdr.school) {
         doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(20);
         doc.text(hdr.school, left, y); y += 15;
@@ -2678,15 +2736,73 @@ function drawReportHead(doc, hdr, opts) {
 }
 
 /* ── Report header editor ── */
+
+/* rhBannerDraft: null = walang binago, '' = tanggalin, data URI = palitan.
+   Kailangan ang tatlong estado — kung "wala" at "tanggalin" ay pareho, hindi
+   kailanman matatanggal ang banner. */
+let rhBannerDraft = null;
+let rhBannerDim = { w: 0, h: 0 };
+
+/* Paliitin at i-encode sa browser. Walang upload handling ang app na ito, at
+   ang isang 4000px na letterhead ay milyong-milyong byte — hindi kailangan ng
+   PDF ang ganoon. Ang 1600px ang lapad ay malinis pa rin sa papel. */
+const RH_MAX_W = 1600;
+
+function rhReadImage(file) {
+    return new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onerror = () => reject(new Error('read failed'));
+        fr.onload = () => {
+            const img = new Image();
+            img.onerror = () => reject(new Error('decode failed'));
+            img.onload = () => {
+                const scale = Math.min(1, RH_MAX_W / img.naturalWidth);
+                const w = Math.max(1, Math.round(img.naturalWidth * scale));
+                const h = Math.max(1, Math.round(img.naturalHeight * scale));
+                const cv = document.createElement('canvas');
+                cv.width = w; cv.height = h;
+                const cx = cv.getContext('2d');
+                /* Puting likod: ang PNG na may transparency ay nagiging itim sa
+                   ilang PDF viewer, at puti naman ang papel. */
+                cx.fillStyle = '#fff';
+                cx.fillRect(0, 0, w, h);
+                cx.drawImage(img, 0, 0, w, h);
+                /* JPEG — isang larawan ng letterhead ay maraming litrato at
+                   gradient, at ang PNG nito ay ilang beses na mas mabigat. */
+                resolve({ data: cv.toDataURL('image/jpeg', 0.85), w, h });
+            };
+            img.src = fr.result;
+        };
+        fr.readAsDataURL(file);
+    });
+}
+
+function rhShowBanner(dataUri) {
+    const img = $('rhBannerImg'), empty = $('rhBannerEmpty');
+    if (dataUri) {
+        img.src = dataUri;
+        img.style.display = 'block';
+        empty.style.display = 'none';
+        $('rhBannerClear').style.display = 'inline-flex';
+    } else {
+        img.removeAttribute('src');
+        img.style.display = 'none';
+        empty.style.display = 'block';
+        $('rhBannerClear').style.display = 'none';
+    }
+}
+
 async function openReportHdr() {
     $('rhErr').style.display = 'none';
     $('rhModal').classList.add('show');
+    rhBannerDraft = null;
     const h = await loadReportHeader();
     $('rhSchool').value  = h.school || '';
     $('rhDept').value    = h.department || '';
     $('rhTitle').value   = h.title || '';
     $('rhFaculty').value = h.faculty || '';
     $('rhNote').value    = h.note || '';
+    rhShowBanner(h.has_banner ? await loadReportBanner() : '');
     setTimeout(() => $('rhSchool').focus(), 60);
 }
 function closeReportHdr() { $('rhModal').classList.remove('show'); }
@@ -2694,14 +2810,22 @@ function closeReportHdr() { $('rhModal').classList.remove('show'); }
 async function saveReportHdr() {
     const btn = $('rhSave');
     btn.disabled = true;
-    const d = await apiPost({
+    const params = {
         api: 'save_report_header',
         school: $('rhSchool').value,
         department: $('rhDept').value,
         title: $('rhTitle').value,
         faculty: $('rhFaculty').value,
         note: $('rhNote').value,
-    });
+    };
+    /* Isinasama lang ang `banner` kung may binago — kung wala, hindi ito
+       nagagalaw sa server (tingnan ang array_key_exists sa ReportController). */
+    if (rhBannerDraft !== null) {
+        params.banner = rhBannerDraft;
+        params.banner_w = rhBannerDim.w;
+        params.banner_h = rhBannerDim.h;
+    }
+    const d = await apiPost(params);
     btn.disabled = false;
     if (!d.success) {
         $('rhErr').textContent = d.message || 'Could not save the report header.';
@@ -2712,7 +2836,10 @@ async function saveReportHdr() {
        pinutol o inalis na bagong linya, dapat iyon ang makita ng guro, hindi
        ang tinipa niya. */
     REPORT_HDR = d.header;
+    if (rhBannerDraft !== null) REPORT_BANNER = rhBannerDraft;   // huwag nang hingin ulit
+    rhBannerDraft = null;
     closeReportHdr();
+    if (SHEET) render();      // ipakita agad sa print header
     showToastSafe('Report header saved — it applies to every PDF.', 'success');
 }
 
@@ -2749,7 +2876,9 @@ async function buildSectionsPDF(sections, fileBase) {
 
     const doc = new jsPDFctor({ orientation: 'landscape', unit: 'pt', format: 'a4' });
     const hdr = await loadReportHeader();
+    const banner = await loadReportBanner();
     const teacher = reportFaculty(hdr);
+    const contentW = doc.internal.pageSize.getWidth() - 80;   // 40pt margin bawat gilid
 
     /* the grade helpers read the globals SHEET / selectedCols — swap them per
        section, then restore so the live view is untouched afterwards */
@@ -2819,7 +2948,7 @@ async function buildSectionsPDF(sections, fileBase) {
             if (pageAdded) doc.addPage();
             pageAdded = true;
 
-            let hy = drawReportHead(doc, hdr, { left: 40, top: 42 });
+            let hy = drawReportHead(doc, hdr, { left: 40, top: 42, banner, width: contentW });
             doc.setFontSize(9.5); doc.setTextColor(110);
             const meta = `Section: ${sec}    ·    Mode: ${termMode ? 'Term (Midterm / Final)' : 'Coursework'}    ·    Passing: ${pass}%`;
             doc.text(meta, 40, hy); hy += 14;
@@ -3086,9 +3215,17 @@ async function exportStudentPDF() {
        setting ng guro — pero LAGING "Grade Slip" ang pamagat: ibang dokumento
        ito, at ang pamagat ng buong sheet ("Grade Sheet") ay mali rito. */
     const hdr = await loadReportHeader();
-    if (hdr.school)     { put(hdr.school, left, { bold: true, size: 13 }); nl(16); }
-    if (hdr.department) { put(hdr.department, left, { size: 9.5, color: [110, 110, 110] }); nl(14); }
-    put('Grade Slip', left, { bold: true, size: hdr.school ? 13 : 16 }); nl(22);
+    const banner = await loadReportBanner();
+    if (banner) {
+        /* Nakasulat na sa letterhead ang paaralan at departamento — hindi na
+           inuulit ang dalawa sa ibaba nito. */
+        y = drawBanner(doc, banner, hdr, left, y - 20, right - left, 70);
+        put('Grade Slip', left, { bold: true, size: 13 }); nl(20);
+    } else {
+        if (hdr.school)     { put(hdr.school, left, { bold: true, size: 13 }); nl(16); }
+        if (hdr.department) { put(hdr.department, left, { size: 9.5, color: [110, 110, 110] }); nl(14); }
+        put('Grade Slip', left, { bold: true, size: hdr.school ? 13 : 16 }); nl(22);
+    }
 
     put(s.fullname || 'Student', left, { bold: true, size: 13 });
     put(`No. ${s.student_no || ''}`, right, { size: 10, color: [110, 110, 110], align: 'right' }); nl(16);
@@ -3808,6 +3945,32 @@ $('retagApply').addEventListener('click', applyRetag);
 $('btnReportHdr').addEventListener('click', openReportHdr);
 $('rhCancel').addEventListener('click', closeReportHdr);
 $('rhSave').addEventListener('click', saveReportHdr);
+$('rhBannerPick').addEventListener('click', () => $('rhBannerFile').click());
+$('rhBannerClear').addEventListener('click', () => {
+    rhBannerDraft = '';                 // '' = tanggalin sa pag-save
+    rhBannerDim = { w: 0, h: 0 };
+    rhShowBanner('');
+    $('rhBannerHint').textContent = 'Banner will be removed when you save.';
+});
+$('rhBannerFile').addEventListener('change', async e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';                // para tanggapin ulit ang parehong file
+    if (!f) return;
+    $('rhErr').style.display = 'none';
+    $('rhBannerHint').textContent = 'Processing…';
+    try {
+        const r = await rhReadImage(f);
+        rhBannerDraft = r.data;
+        rhBannerDim = { w: r.w, h: r.h };
+        rhShowBanner(r.data);
+        const kb = Math.round(r.data.length / 1024);
+        $('rhBannerHint').textContent = `${r.w}×${r.h}, ~${kb} KB — press Save header to keep it.`;
+    } catch (err) {
+        $('rhBannerHint').textContent = 'PNG or JPG. A wide letterhead strip works best.';
+        $('rhErr').textContent = 'Could not read that image. Try a PNG or JPG.';
+        $('rhErr').style.display = 'block';
+    }
+});
 /* Mungkahi lang ang pangalan sa account — madalas may titulo pa ang gustong
    lumabas sa report, kaya hindi ito basta ipinipilit. */
 $('rhUseMyName').addEventListener('click', () => {

@@ -353,6 +353,23 @@ class Schema
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         )");
 
+        /* Banner ng letterhead — naka-imbak bilang data URI, hindi bilang file.
+           Walang upload handling ang eGradeBook (at walang masusulatang folder
+           sa karaniwang shared host), kaya ang browser ang nagpapaliit at
+           nag-e-encode; teksto na lang ang dumarating dito. Sapat ang
+           MEDIUMTEXT (16MB) — pinuputol naman ng kliyente sa ~1600px ang lapad.
+           Ang banner_w/h ay ang sukat PAGKATAPOS ng paliit: kailangan ng jsPDF
+           ang ratio para hindi mabanat ang larawan. */
+        if (!$db->colExists('grade_report_header', 'banner')) {
+            $conn->query("ALTER TABLE grade_report_header ADD COLUMN banner MEDIUMTEXT NULL");
+        }
+        if (!$db->colExists('grade_report_header', 'banner_w')) {
+            $conn->query("ALTER TABLE grade_report_header ADD COLUMN banner_w INT NOT NULL DEFAULT 0");
+        }
+        if (!$db->colExists('grade_report_header', 'banner_h')) {
+            $conn->query("ALTER TABLE grade_report_header ADD COLUMN banner_h INT NOT NULL DEFAULT 0");
+        }
+
         $conn->query("CREATE TABLE IF NOT EXISTS grade_app_access (
             admin_id   INT NOT NULL,
             granted_by INT NOT NULL DEFAULT 0,

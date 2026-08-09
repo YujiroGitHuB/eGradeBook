@@ -78,6 +78,7 @@ class Router
         // PDF report header (per teacher, not per class)
         'get_report_header'     => [ReportController::class, 'getHeader'],
         'save_report_header'    => [ReportController::class, 'saveHeader'],
+        'get_report_banner'     => [ReportController::class, 'getBanner'],
         // app allowlist — SUPERADMIN ONLY (re-checked inside the controller)
         'access_list'           => [AccessController::class, 'listAccounts'],
         'set_access'            => [AccessController::class, 'setAccess'],
