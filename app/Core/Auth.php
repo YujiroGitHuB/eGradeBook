@@ -71,24 +71,37 @@ class Auth
         return (($_SESSION['admin_role'] ?? '') === 'superadmin');
     }
 
-    /* index.php requires superadmin for both page loads and API calls.
-       Non-superadmins get a 403 (JSON for the API, an HTML page otherwise). */
-    public static function requireSuperadmin(bool $isApi): void
+    /* Ang access gate ng index.php, para sa page load at sa ?api= (403).
+
+       BAKIT HINDI SAPAT ANG "may account ka sa FormFlow": iisang PHP session
+       ang dalawang app sa iisang host — parehong PHPSESSID sa path '/', at
+       sinusulat ng login.php ng FormFlow ang parehong `admin_id` / `admin_role`.
+       Kaya ang naka-login sa FormFlow ay pasado na sa requireLogin() dito nang
+       hindi man lang dumadaan sa login.php natin. Kung ang pagkakaroon ng
+       account ang magiging batayan, ang bawat FormFlow account — pati ang
+       gagawin pa lang para sa ibang layunin — ay may eGradeBook agad. Kaya
+       tahasang talaan ang nagpapasya: grade_app_access.
+
+       LAGING pasado ang superadmin, kahit wala sa talaan. Iyon ang nagsisiguro
+       na hindi kailanman mai-lock out ng namamahala ang sarili niya — walang
+       pagkakataong walang natitirang makakapasok para magbigay muli ng access. */
+    public static function requireAccess(\App\Core\Database $db, bool $isApi): void
     {
         if (self::isSuperadmin()) return;
+        if ((new \App\Models\AccessRepo($db))->has(self::ownerId())) return;
 
         if ($isApi) {
             header('Content-Type: application/json');
             http_response_code(403);
-            echo json_encode(['success' => false, 'message' => 'Access denied. Superadmin only.']);
+            echo json_encode(['success' => false, 'message' => 'You do not have access to eGradeBook. Ask a superadmin to grant it.']);
             exit;
         }
-        // page load, not superadmin → access denied (this is a standalone app, no other dashboard)
+        // page load — hindi ito kulang na login, kaya hindi login.php ang sagot
         http_response_code(403);
         echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Access Denied</title>'
             . '<link rel="stylesheet" href="assets/css/global.css"></head>'
             . '<body class="bg-glow" style="display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;">'
-            . '<div><h2>Access denied</h2><p style="color:var(--muted);">Only superadmins have access to eGradeBook.</p>'
+            . '<div><h2>Access denied</h2><p style="color:var(--muted);">Your account does not have access to eGradeBook yet.<br>Ask a superadmin to grant it.</p>'
             . '<a href="inc/logout.php" class="btn btn-ghost btn-sm">Logout</a></div></body></html>';
         exit;
     }

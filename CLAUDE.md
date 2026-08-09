@@ -138,9 +138,22 @@ eGradeBook on the next login.
 - Post-login redirect goes through `AuthController::safeNext()`. The old
   `strpos($next,'http')===0` check missed `//evil.com` and `/\evil.com`, which
   browsers treat as another site — an open redirect through `login.php?next=`.
-- `index.php` additionally requires **`$_SESSION['admin_role'] === 'superadmin'`**
-  (set from FormFlow's `admin_users.role` at login) — non-superadmins get a 403 for
-  both page loads and API calls. Treat eGradeBook as superadmin-only.
+- **`Auth::requireAccess($db, $isApi)` is the access gate** (403 for both page
+  loads and API calls). A **superadmin always passes**; anyone else must be in
+  the `grade_app_access` allowlist (`App\Models\AccessRepo`). It runs *after*
+  the DB boot in `index.php`, unlike the login gate, because it reads a table.
+  **The reason it cannot simply be "do you have a FormFlow account":** the two
+  apps share **one PHP session** — same host, default `PHPSESSID` on path `/`,
+  and FormFlow's `login.php` writes the very same `admin_id` / `admin_role` /
+  `admin_avatar` keys. So a FormFlow login already satisfies
+  `Auth::requireLogin()` here without ever touching eGradeBook's `login.php`.
+  If account existence granted entry, every FormFlow account — including ones
+  created later for unrelated purposes — would get a gradebook automatically.
+  Superadmins bypass the table so the last administrator can never lock
+  themselves (or everyone) out. Managed via **More ▸ Admin ▸ Manage access…**
+  (`access_list` / `set_access`), which `AccessController` re-checks for
+  superadmin: *having* access is not permission to *grant* it. Revoking only
+  removes entry — the teacher's `grade_*` rows are left intact.
 - All grading data is scoped per teacher by `owner_id = $_SESSION['admin_id']`
   (exposed as `Auth::ownerId()`, passed into every repo/controller). Any new query
   touching `grade_*` tables must filter/insert with `owner_id`, and ownership-check
@@ -256,7 +269,7 @@ Layers under `app/`:
   holds `$db`/`$ownerId`, gives `json`/`ok`/`fail`/`post`/`get`/`classScope()`
   helpers), `ClassScope` (the class-scope DTO — see "Class scoping"), and
   `Router` (maps every `?api=` action name → `[Controller::class, 'method']` —
-  **register new actions here**; all 34 actions are listed in `Core/Router.php`).
+  **register new actions here**; all 36 actions are listed in `Core/Router.php`).
 - **`Models/`** — one owner-scoped repository per table/domain. Grade tables:
   `ActivityRepo`, `ScoreRepo`, `CategoryRepo`, `SettingsRepo`, `TransmuteRepo`
   (holds `DEFAULT_EQUIV`), `StatusRepo`, `FormMetaRepo`, `AttendanceRepo`,
@@ -282,8 +295,9 @@ Layers under `app/`:
   list so the client gets real ids for the column-header dropdowns without a
   sheet reload), `StatusController`,
   `ClassController` (`retag_class`), `ResetController` (`reset_all` — the
-  danger-zone "Clear all my data", see below), plus `AuthController` (login,
-  used by `login.php`).
+  danger-zone "Clear all my data", see below), `AccessController` (the
+  superadmin-only app allowlist — see "Auth & access model"), plus
+  `AuthController` (login, used by `login.php`).
 - **`Views/`** — `sheet.php` (the grading-sheet page). `login.php` keeps its view
   inline. Shared UI pieces are still in `components/` (`favico`, `footer`,
   `logoutModal`, `supportModal`); the view includes them via `APP_ROOT`.

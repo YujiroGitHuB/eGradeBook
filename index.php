@@ -23,7 +23,6 @@ use App\Core\Router;
 $isApi = isset($_GET['api']) || isset($_POST['api']);
 
 Auth::requireLogin($isApi);           // login gate (bridged to FormFlow admin_users)
-Auth::requireSuperadmin($isApi);      // eGradeBook is superadmin-only (403 otherwise)
 
 try {
     $db = new Database();             // egradebook_db + FORMFLOW/ATTENDANCE bridge + timezone
@@ -46,6 +45,12 @@ try {
     }
     exit;
 }
+
+/* Access gate — pagkatapos ng DB, dahil isang talaan sa database ang
+   sinasangguni nito (grade_app_access). Ang superadmin ay laging pasado;
+   ang iba ay kailangang nasa allowlist. Tingnan ang Auth::requireAccess
+   kung bakit hindi sapat ang "may FormFlow account ka". */
+Auth::requireAccess($db, $isApi);
 
 /* ── API LAYER — any ?api= request returns JSON and exits ── */
 if ($isApi) {

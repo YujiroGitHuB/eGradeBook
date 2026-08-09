@@ -319,6 +319,29 @@ class Schema
             created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (owner_id, section, school_year, semester, subject)
         )");
+
+        /* ── APP ACCESS ALLOWLIST ────────────────────────────────
+           Kung sinong account ng FormFlow ang makakapasok sa eGradeBook.
+
+           Bakit kailangan ito: IISANG PHP session ang FormFlow at eGradeBook
+           sa iisang host (parehong PHPSESSID sa path '/', at parehong-pareho
+           ang mga key na `admin_id` / `admin_role`). Kaya ang sinumang naka-
+           login sa FormFlow ay pasado na sa Auth::requireLogin() dito — hindi
+           na sila kailangang dumaan sa login.php natin. Kung basta aalisin ang
+           superadmin gate, LAHAT ng FormFlow account ay may eGradeBook agad,
+           pati ang mga gagawin pa lang sa hinaharap para sa ibang layunin.
+           Ang talaang ito ang nagpapasya, hindi ang pagkakaroon ng account.
+
+           SADYANG hindi ito owner-scoped — hindi ito datos ng isang guro kundi
+           talaan ng buong app (gaya ng grade_schema_version). Ang superadmin
+           ay LAGING pasado kahit wala rito, kaya walang paraang ma-lock out
+           ang sarili (tingnan ang Auth::requireAccess). */
+        $conn->query("CREATE TABLE IF NOT EXISTS grade_app_access (
+            admin_id   INT NOT NULL,
+            granted_by INT NOT NULL DEFAULT 0,
+            granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (admin_id)
+        )");
     }
 
     /* Is $col part of the named index ($index; use 'PRIMARY' for the primary

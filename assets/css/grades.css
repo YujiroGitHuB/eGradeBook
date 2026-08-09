@@ -451,6 +451,51 @@ main {
     color: var(--danger);
 }
 
+/* ── Manage access modal (superadmin) ── */
+.acc-list {
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+    max-height: 46vh;
+    overflow-y: auto;
+    padding-right: .2rem;
+}
+
+.acc-row {
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+    padding: .55rem .65rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface2);
+    cursor: pointer;
+}
+
+.acc-row:hover { border-color: var(--accent); }
+
+/* Superadmin — laging naka-on, kaya hindi ito dapat magmukhang mapipindot. */
+.acc-row.is-locked { cursor: default; opacity: .75; }
+.acc-row.is-locked:hover { border-color: var(--border); }
+
+.acc-row input { accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+.acc-meta { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.acc-name { font-size: .88rem; color: var(--text); }
+.acc-user { font-size: .74rem; color: var(--muted); }
+
+.acc-tag {
+    display: inline-block;
+    font-size: .66rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--accent);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: .06rem .4rem;
+    margin-left: .3rem;
+    vertical-align: middle;
+}
+
 /* ── Form columns modal ── */
 .fc-list {
     display: flex;

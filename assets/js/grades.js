@@ -3249,6 +3249,60 @@ async function applyRetag() {
     loadSheet(SHEET.section);
 }
 
+/* ── Manage access (superadmin only) ─────────────────────────
+   Sinong FormFlow account ang makakagamit ng eGradeBook. Nasa server ang
+   tunay na gate (Auth::requireAccess) at ang superadmin check (
+   AccessController) — pampadali lang ito, hindi seguridad: wala rito ang
+   modal kung hindi ka superadmin, pero ang server pa rin ang nagpapasya. */
+async function openAccessModal() {
+    const box = $('accessModal');
+    if (!box) return;
+    $('accessList').innerHTML = '<div class="bulk-note">Loading…</div>';
+    box.classList.add('show');
+    const d = await apiGet({ api: 'access_list' });
+    if (!d.success) {
+        $('accessList').innerHTML = `<div class="bulk-err">${escHtml(d.message || 'Could not load the accounts.')}</div>`;
+        return;
+    }
+    renderAccessList(d.accounts || [], d.me);
+}
+function closeAccessModal() { $('accessModal').classList.remove('show'); }
+
+function renderAccessList(accounts, meId) {
+    if (!accounts.length) { $('accessList').innerHTML = '<div class="bulk-note">No accounts found.</div>'; return; }
+    $('accessList').innerHTML = accounts.map(a => {
+        const isSuper = a.role === 'superadmin';
+        /* Laging naka-on at hindi mapapatay ang superadmin — kapareho ng
+           panuntunan sa server, kaya walang switch na mukhang gumagana pero
+           tatanggihan naman. Ikaw mismo ay may dagdag na "(you)". */
+        const on = isSuper || a.granted;
+        const tag = isSuper ? '<span class="acc-tag">superadmin</span>' : '';
+        const me  = a.id === meId ? '<span class="acc-tag">you</span>' : '';
+        return `<label class="acc-row${isSuper ? ' is-locked' : ''}">
+            <input type="checkbox" data-id="${a.id}" ${on ? 'checked' : ''} ${isSuper ? 'disabled' : ''}>
+            <span class="acc-meta">
+                <span class="acc-name">${escHtml(a.full_name)} ${tag}${me}</span>
+                <span class="acc-user">@${escHtml(a.username)}</span>
+            </span>
+        </label>`;
+    }).join('');
+    $('accessList').querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', () => setAccess(cb, parseInt(cb.dataset.id), cb.checked));
+    });
+}
+
+async function setAccess(cb, adminId, grant) {
+    cb.disabled = true;
+    const d = await apiPost({ api: 'set_access', admin_id: adminId, grant: grant ? '1' : '0' });
+    cb.disabled = false;
+    if (!d.success) {
+        cb.checked = !grant;   // ibalik ang switch; hindi natuloy sa server
+        showToastSafe(d.message || 'Could not change access.', 'error');
+        return;
+    }
+    showToastSafe(grant ? 'Access granted.' : 'Access removed. Their gradebook is untouched.', 'success');
+}
+
 /* ── Clear all my data (danger zone) ─────────────────────────
    Ibinabalik sa walang laman ang buong gradebook ng gurong naka-log in —
    lahat ng section, lahat ng klase. Hindi ito mababawi, kaya:
@@ -3456,6 +3510,9 @@ $('btnCopyFrom').addEventListener('click', openCopyModal);
 $('btnRetag').addEventListener('click', openRetag);
 $('retagCancel').addEventListener('click', closeRetag);
 $('retagApply').addEventListener('click', applyRetag);
+/* Superadmin lang ang may ganitong menu item at modal — kaya naka-guard. */
+if ($('btnAccess')) $('btnAccess').addEventListener('click', openAccessModal);
+if ($('accessClose')) $('accessClose').addEventListener('click', closeAccessModal);
 $('btnClearAll').addEventListener('click', openClearAll);
 $('clearAllCancel').addEventListener('click', closeClearAll);
 $('clearAllApply').addEventListener('click', applyClearAll);

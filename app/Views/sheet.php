@@ -116,6 +116,11 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
                         <button class="profile-menu-item" id="btnPdfSection" role="menuitem" title="PDF of the current section's grades"><i class="bi bi-file-earmark-pdf"></i> Export section (PDF)</button>
                         <button class="profile-menu-item" id="btnPdfAll" role="menuitem" title="One combined PDF of every section's grades"><i class="bi bi-file-earmark-pdf-fill"></i> Export all (PDF)</button>
                         <button class="profile-menu-item" id="btnPrint" role="menuitem"><i class="bi bi-printer"></i> Print</button>
+                        <?php if (\App\Core\Auth::isSuperadmin()): ?>
+                            <div class="profile-menu-divider"></div>
+                            <div class="gs-more-label">Admin</div>
+                            <button class="profile-menu-item" id="btnAccess" role="menuitem" title="Choose which FormFlow accounts can use eGradeBook"><i class="bi bi-people"></i> Manage access…</button>
+                        <?php endif; ?>
                         <div class="profile-menu-divider"></div>
                         <div class="gs-more-label">Danger zone</div>
                         <button class="profile-menu-item danger" id="btnClearAll" role="menuitem" title="Delete your whole gradebook — every section and class"><i class="bi bi-exclamation-octagon"></i> Clear all my data…</button>
@@ -512,6 +517,30 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
             </div>
         </div>
     </div>
+
+    <?php if (\App\Core\Auth::isSuperadmin()): ?>
+    <!-- Manage Access Modal — which FormFlow accounts may use eGradeBook.
+         Needed because the two apps share one PHP session: a FormFlow login
+         already satisfies requireLogin() here, so having an account cannot be
+         the thing that grants access. Superadmins are always in and cannot be
+         switched off, so there is no way to lock everyone out. -->
+    <div class="modal-backdrop" id="accessModal">
+        <div class="modal gs-maccent" style="max-width:560px;">
+            <div class="gs-mhead">
+                <div class="gs-mhead-ic"><i class="bi bi-people"></i></div>
+                <div>
+                    <h3 class="gs-mtitle">Manage access</h3>
+                    <p class="gs-msub">Which FormFlow accounts can use eGradeBook. Each one gets their own separate gradebook.</p>
+                </div>
+            </div>
+            <p class="bulk-note" style="margin:1rem 0 .6rem;"><i class="bi bi-info-circle"></i> Turning access off does <b>not</b> delete anything — that teacher's gradebook stays exactly as it is, and comes back if you switch them on again. Superadmins always have access.</p>
+            <div id="accessList" class="acc-list"><div class="bulk-note">Loading…</div></div>
+            <div class="modal-actions" style="margin-top:1.3rem;">
+                <button class="btn btn-primary" id="accessClose"><i class="bi bi-check-lg"></i> Done</button>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Clear All Modal (danger zone) — wipes THIS teacher's whole gradebook.
          Type-to-confirm: the button stays disabled until the exact phrase is
