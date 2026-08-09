@@ -2445,6 +2445,22 @@ function tmAddBand() {
     if (mins.length) mins[mins.length - 1].focus();
 }
 
+/* Ibalik ang karaniwang PH college scale. Ang DRAFT lang ang pinapalitan —
+   hindi ito nagse-save, kaya nakikita mo muna ang siyam na banda at nababawi
+   ng Cancel. Ito ang tanging paraan para maibalik ang default: sadyang hindi
+   hinahawakan ng "Clear all" ang transmutation (tingnan ang ResetRepo), dahil
+   ang tahimik na pagpapalit ng iskala ay nagbabago ng grado nang walang
+   anumang nagpapakita kung bakit. */
+function tmResetDefaults() {
+    const same = tmDraft.length === DEFAULT_EQUIV.length
+        && DEFAULT_EQUIV.every((d, i) => Number(tmDraft[i].min) === d.min && Number(tmDraft[i].point) === d.point);
+    if (same) { showToastSafe('Already the default scale.', 'success'); return; }
+    if (!confirm('Replace the bands in this table with the default PH college scale?\n\nNothing is saved until you press Save table.')) return;
+    tmDraft = DEFAULT_EQUIV.map(b => ({ min: b.min, point: b.point }));
+    renderTm();
+    showToastSafe('Default scale loaded — press Save table to keep it.', 'success');
+}
+
 async function saveTm() {
     /* mirror server-side validation: min 0–100, point 1.00–5.00, dedup by min */
     const clean = [];
@@ -3486,6 +3502,7 @@ $('setupClose').addEventListener('click', closeSetupModal);
 $('btnTransmute').addEventListener('click', openTmModal);
 $('tmCancel').addEventListener('click', closeTmModal);
 $('tmAddBand').addEventListener('click', tmAddBand);
+$('tmReset').addEventListener('click', tmResetDefaults);
 $('tmSave').addEventListener('click', saveTm);
 $('bdClose').addEventListener('click', closeBreakdown);
 $('bdPdf').addEventListener('click', exportStudentPDF);

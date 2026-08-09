@@ -175,8 +175,12 @@ eGradeBook on the next login.
   leave every teacher half-wiped with no way back. `grade_activity_scores` has
   no `owner_id`, so a targeted clear deletes it first via a join on
   `grade_activities` rather than trusting the FK cascade, which a MyISAM table
-  would silently ignore. `grade_transmute` goes too — `TransmuteRepo::load()`
-  reseeds the default scale on the next read. `grade_schema_version` is never
+  would silently ignore. **`grade_transmute` is deliberately spared**: it is a
+  scale the teacher owns, not gradebook content — identical across every
+  section and year, and rarely touched once set. Clearing it would silently
+  drop them back to the default band table, so the same raw scores would
+  produce different final grades next term with nothing to show why; it is
+  edited in the Transmutation modal instead. `grade_schema_version` is never
   touched (see the `Schema::migrate()` note under Conventions). Guarded by
   **type-to-confirm**, with a *different* phrase per target: `CLEAR ALL` for
   yourself, `CLEAR <username>` for another teacher, `CLEAR EVERYTHING` for all.
@@ -335,7 +339,13 @@ object, and computes grades client-side. Grading logic to preserve when editing:
   source of truth for both flat and term grades. The default scale is
   **duplicated** in two places that must be edited together:
   `App\Models\TransmuteRepo::DEFAULT_EQUIV` (PHP, seeds a teacher's bands) and
-  `DEFAULT_EQUIV` in `grades.js` (JS fallback).
+  `DEFAULT_EQUIV` in `grades.js` (JS fallback). That duplication now has a third
+  consumer: **"Reset to default"** in the Transmutation modal (`tmResetDefaults`)
+  loads the *JS* copy into the draft, so the two drifting apart would mean the
+  reset button hands back a different scale than a fresh teacher is seeded with.
+  It only fills the draft — the teacher still has to press **Save table**, and
+  Cancel abandons it. This button is the *only* way back to the defaults, on
+  purpose: `reset_all` deliberately spares `grade_transmute` (see above).
 - **Two grading modes** per section: flat (coursework × 0.50 + defense × 0.50,
   see `CW_WEIGHT`/`DEF_WEIGHT`) vs. term mode (Midterm/Final with weighted
   categories), toggled by `term_mode` in `grade_settings`.

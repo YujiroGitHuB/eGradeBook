@@ -575,8 +575,8 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
                         <select id="clearOwner" class="gs-input"></select>
                     </div>
                 <?php endif; ?>
-                <p class="bulk-note" style="margin:0;"><i class="bi bi-trash3"></i> <b>Deleted:</b> every activity and score, grading categories, settings, form column and attendance setup, student status overrides, classes, pinned sections, and transmutation bands (back to the default scale) — across <b>all sections</b>, not just this one.</p>
-                <p class="bulk-note" style="margin:0;"><i class="bi bi-shield-check"></i> <b>Kept:</b> the FormFlow forms and their responses, the student roster, and the attendance scans. Those live in the other apps — eGradeBook only reads them. Account access is not changed either.</p>
+                <p class="bulk-note" style="margin:0;"><i class="bi bi-trash3"></i> <b>Deleted:</b> every activity and score, grading categories, settings, form column and attendance setup, student status overrides, classes, and pinned sections — across <b>all sections</b>, not just this one.</p>
+                <p class="bulk-note" style="margin:0;"><i class="bi bi-shield-check"></i> <b>Kept:</b> the <b>transmutation table</b> (that's a scale, not gradebook content — change it in More ▸ Transmutation), plus the FormFlow forms and their responses, the student roster, and the attendance scans. Those live in the other apps — eGradeBook only reads them. Account access is not changed either.</p>
                 <p class="bulk-err" id="clearScopeWarn" style="display:none;margin:0;"></p>
                 <div class="gs-field">
                     <label for="clearAllPhrase">Type <b id="clearPhraseLbl">CLEAR ALL</b> to confirm</label>
@@ -683,7 +683,11 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
             <div id="tmBody" class="tm-body"></div>
             <p class="bulk-note" id="tmHint" style="margin:.5rem 0 0;"><i class="bi bi-info-circle"></i> A student gets a point once their grade reaches its min. Anything below the lowest band = Failed (5.00).</p>
             <div class="modal-actions" style="margin-top:1.3rem;">
-                <button class="btn btn-ghost btn-sm" id="tmAddBand" style="margin-right:auto;"><i class="bi bi-plus"></i> Add band</button>
+                <button class="btn btn-ghost btn-sm" id="tmAddBand"><i class="bi bi-plus"></i> Add band</button>
+                <!-- Ibinabalik lang sa DRAFT ang default na iskala — hindi ito
+                     nagse-save. Kailangan pa ring pindutin ang Save table, kaya
+                     nakikita mo muna ang mga banda at nababawi ng Cancel. -->
+                <button class="btn btn-ghost btn-sm" id="tmReset" style="margin-right:auto;" title="Put the standard PH college scale back in the table (you still have to Save)"><i class="bi bi-arrow-counterclockwise"></i> Reset to default</button>
                 <button class="btn btn-ghost" id="tmCancel">Cancel</button>
                 <button class="btn btn-primary" id="tmSave"><i class="bi bi-check-lg"></i> Save table</button>
             </div>

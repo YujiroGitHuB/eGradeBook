@@ -41,8 +41,16 @@ class ResetRepo
         'grade_roster_snapshot' => 'roster snapshots',
         'grade_classes'         => 'classes',
         'grade_pinned_sections' => 'pinned sections',
-        'grade_transmute'       => 'transmutation bands',
     ];
+
+    /* SADYANG WALA RITO ang `grade_transmute`. Hindi iyon gradebook — isa
+       iyong panukat na hawak ng guro (raw 0–100 → 1.00–5.00), pareho sa bawat
+       section at bawat taon, at halos hindi nagbabago kapag naitakda na. Ang
+       "simulan muli nang malinis" ay tungkol sa nilalaman, hindi sa panukat;
+       ang pagpapatipa muli ng siyam na banda tuwing maglilinis ay parusa, at
+       ang tahimik na pagbalik sa default na iskala ay mas malala pa — magkaiba
+       na ang lalabas na grado sa susunod na semestre nang hindi mo napapansin.
+       Sa Transmutation modal ito binabago, hindi sa Clear all. */
 
     private Database $db;
     private int $ownerId;
