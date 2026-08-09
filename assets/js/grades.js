@@ -2678,8 +2678,18 @@ function drawBanner(doc, dataUri, hdr, left, top, width, maxH) {
     /* Isang mahabang letterhead strip ay manipis, pero walang pumipigil sa
        guro na mag-upload ng parisukat na logo — at iyon ay kakainin ang
        kalahati ng pahina. Kapag lumampas sa taas, ang LAPAD ang binabawasan,
-       kaya hindi nababanat ang larawan. */
-    const cap = maxH || 90;
+       kaya hindi nababanat ang larawan.
+
+       ANG CAP AY HULING SANDIGAN LANG, HINDI PANUKAT NG LAYOUT. Ang mahigpit
+       na cap ay hindi nagpapaikli ng banner — PINAPAIKLI nito ang LAPAD, kaya
+       lumilitaw ang letterhead na kulang sa kanang gilid habang umaabot naman
+       sa dulo ang talahanayan sa ilalim; iyon ang basag na hitsura. Kaya ang
+       cap ay nakatali sa taas ng pahina (25%), hindi sa isang nakapirming
+       numero: sa A4 landscape ay ~149pt — kasya nang buong lapad ang anumang
+       strip na 5:1 pataas (ang karaniwang letterhead ay 6:1–8:1), at sa
+       portrait ay ~210pt. Tanging ang halos-parisukat na logo ang naaabot ang
+       cap, at doon lang naman talaga kailangan ang pagbabawas. */
+    const cap = maxH || doc.internal.pageSize.getHeight() * 0.25;
     if (drawH > cap) { drawH = cap; drawW = cap * (w / h); }
 
     try {
@@ -2714,7 +2724,10 @@ function drawReportHead(doc, hdr, opts) {
        ang departamento, kaya hindi na inuulit ang dalawa sa ibaba nito. Ang
        pamagat lang ang natitira. */
     if (o.banner) {
-        y = drawBanner(doc, o.banner, hdr, left, y - 18, o.width, 80);
+        /* Walang ipinapasang cap — ang letterhead ay dapat kasinlapad mismo ng
+           talahanayan sa ilalim nito (parehong `left` at `width`). Tingnan ang
+           drawBanner: ang cap ay panlaban lang sa parisukat na logo. */
+        y = drawBanner(doc, o.banner, hdr, left, y - 18, o.width);
         doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(20);
         doc.text(hdr.title || fallbackTitle, left, y); y += 16;
         doc.setFont('helvetica', 'normal'); doc.setTextColor(0);
@@ -3219,7 +3232,7 @@ async function exportStudentPDF() {
     if (banner) {
         /* Nakasulat na sa letterhead ang paaralan at departamento — hindi na
            inuulit ang dalawa sa ibaba nito. */
-        y = drawBanner(doc, banner, hdr, left, y - 20, right - left, 70);
+        y = drawBanner(doc, banner, hdr, left, y - 20, right - left);
         put('Grade Slip', left, { bold: true, size: 13 }); nl(20);
     } else {
         if (hdr.school)     { put(hdr.school, left, { bold: true, size: 13 }); nl(16); }

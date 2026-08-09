@@ -391,8 +391,17 @@ object, and computes grades client-side. Grading logic to preserve when editing:
   Two rules protect the layout and the page: the data URI **must** match
   `data:image/(png|jpeg);base64,…` server-side — **SVG is deliberately refused**
   because it is markup that can carry script and jsPDF cannot draw it — and
-  `drawBanner()` caps the drawn height (80pt landscape, 70pt portrait), shrinking
-  the *width* to match so a square logo cannot eat half the page. `get_report_header`
+  `drawBanner()` caps the drawn height at **25% of the page height**, shrinking
+  the *width* to match so a square logo cannot eat half the page. That cap is a
+  backstop, not a layout knob: shrinking the width is exactly what makes a
+  letterhead look broken, because it then stops short of the right edge while
+  the table beneath it runs the full width. The old fixed caps (80pt landscape /
+  70pt portrait) were *tighter than a normal letterhead* — a 7.2:1 strip at A4
+  landscape wants ~106pt, so it was drawn at 76% width on every section PDF. At
+  25% of the page (~149pt landscape, ~210pt portrait) anything 5:1 or wider
+  draws full-width, and only a near-square logo ever hits the cap. Both call
+  sites therefore pass **no** `maxH` — the banner's `left`/`width` must stay
+  identical to `autoTable`'s margins. `get_report_header`
   returns only a `has_banner` flag and the dimensions; the image itself comes
   from the separate `get_report_banner`, because the header call runs on **every
   page load** for the print header and must stay small. When a banner is set,
