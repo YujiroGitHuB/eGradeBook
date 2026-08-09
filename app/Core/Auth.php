@@ -97,4 +97,23 @@ class Auth
     {
         return intval($_SESSION['admin_id'] ?? 0);
     }
+
+    /* URL ng profile photo ng nakalog-in ('' = wala, gamitin ang icon).
+
+       Ang halagang ito ay HINDI atin — galing ito sa admin_users ng FormFlow at
+       tuwiran itong napupunta sa isang src="" attribute. Kaya path lang na
+       relatibo ang tinatanggap: anumang may scheme (`javascript:`, `data:`),
+       nagsisimula sa dalawang slash (`//ibang-site.com`), o may `..` ay
+       tinatanggihan — hindi ito dapat makaturo palabas ng FormFlow. Pareho ito
+       ng pag-iingat na ginagawa ng AuthController::safeNext sa `next=`. */
+    public static function avatarUrl(): string
+    {
+        $a = trim((string)($_SESSION['admin_avatar'] ?? ''));
+        if ($a === '' || FORMFLOW_WEB_BASE === '') return '';
+        if (strpos($a, '..') !== false) return '';
+        if (strpos($a, '\\') !== false) return '';
+        if (strncmp($a, '//', 2) === 0) return '';
+        if (preg_match('#^[a-z][a-z0-9+.-]*:#i', $a)) return '';
+        return FORMFLOW_WEB_BASE . ltrim($a, '/');
+    }
 }

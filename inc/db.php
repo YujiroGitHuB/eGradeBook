@@ -35,3 +35,16 @@ define('ATTENDANCE_TABLE', 'students_tbl');
 
 // ── Optional: link back to the main FormFlow app (leave '' to hide the link) ──
 define('FORMFLOW_APP_URL', '');
+
+/* ── Saan hinahain ang FormFlow sa WEB (hindi sa DB) ──────────────
+   Ang profile photo ay nakatago sa formflow_db.admin_users.avatar bilang
+   path na RELATIBO sa sariling folder ng FormFlow (hal.
+   "uploads/avatars/a1b2c3.jpg") — nasa disk ng FormFlow ang file mismo,
+   hindi rito. Ang bridge natin ay SQL lang; hindi nito naaabot ang mga
+   file, kaya kailangan ng URL na maituturo ng browser.
+
+   Ang default ay para sa magkatabing deploy: /FormFlow at /eGradeBook sa
+   iisang web root, kaya mula sa /eGradeBook/index.php ay tumatama ang
+   "../FormFlow/". Palitan ng ganap na URL kung ibang lugar ang FormFlow.
+   Ang '' ay nagtatago ng larawan at ibabalik ang dating icon. */
+define('FORMFLOW_WEB_BASE', '../FormFlow/');

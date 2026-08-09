@@ -7,6 +7,23 @@
    Talks to the backend only via index.php?api=... (assets/js/grades.js),
    so the API contract is unchanged.
    ============================================================ */
+
+/* Profile photo mula sa account sa FormFlow (tingnan ang Auth::avatarUrl).
+   Ang $avatarPic() ay naglalabas ng larawan KASAMA ang icon na nakatago sa
+   likod nito: kung mabigo ang larawan — ibang folder ang FormFlow, nabura ang
+   file, o hindi hinahain nang publiko ang uploads/ — babalik ang icon sa
+   halip na maiwang basag na larawan sa navbar. */
+$avatarSrc = \App\Core\Auth::avatarUrl();
+$avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc) {
+    $c    = trim('profile-pic ' . $cls);
+    $icon = '<i class="bi bi-person-circle ' . htmlspecialchars($cls) . '"';
+    if ($avatarSrc === '') {
+        return $icon . ($iconStyle !== '' ? ' style="' . htmlspecialchars($iconStyle) . '"' : '') . '></i>';
+    }
+    return '<img class="' . htmlspecialchars($c) . '" src="' . htmlspecialchars($avatarSrc) . '" alt=""'
+        . ' onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'\'">'
+        . $icon . ' style="display:none;' . htmlspecialchars($iconStyle) . '"></i>';
+};
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -38,13 +55,13 @@
             <button class="theme-toggle" title="Toggle theme"><i class="bi bi-sun-fill"></i></button>
             <div class="profile" id="profileDropdown">
                 <button class="profile-trigger" id="profileTrigger" aria-haspopup="true" aria-expanded="false">
-                    <i class="bi bi-person-circle profile-avatar"></i>
+                    <?= $avatarPic('profile-avatar') ?>
                     <span class="profile-name"><?php echo htmlspecialchars($_SESSION['admin_name'] ?? 'Admin'); ?></span>
                     <i class="bi bi-chevron-down profile-chev"></i>
                 </button>
                 <div class="profile-menu" id="profileMenu" role="menu">
                     <div class="profile-menu-head">
-                        <i class="bi bi-person-circle"></i>
+                        <?= $avatarPic() ?>
                         <div class="profile-menu-meta">
                             <div class="profile-menu-name"><?php echo htmlspecialchars($_SESSION['admin_name'] ?? 'Admin'); ?></div>
                             <div class="profile-menu-sub">Signed in</div>
@@ -60,7 +77,7 @@
 
     <div class="nav-mobile-menu" id="navMobileMenu">
         <div class="menu-user">
-            <i class="bi bi-person-circle" style="color:var(--accent);"></i>
+            <?= $avatarPic('', 'color:var(--accent);') ?>
             <?php echo htmlspecialchars($_SESSION['admin_name'] ?? 'Admin'); ?>
         </div>
         <div class="menu-divider"></div>

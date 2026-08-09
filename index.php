@@ -66,4 +66,18 @@ if ($isApi) {
 }
 
 /* ── Non-API GET → render the grading sheet page ── */
+
+/* Ang mga session na nabuo BAGO pa idagdag ang larawan sa login ay walang
+   admin_avatar. Sa halip na pilitin ang lahat na mag-log out para lang
+   lumitaw ang mukha nila, isang beses itong kunin dito. `array_key_exists`,
+   hindi empty() — ang taong talagang walang larawan ay may '' na naka-imbak,
+   at hindi na dapat inuulit ang tanong para sa kanya sa bawat page load. */
+if (!array_key_exists('admin_avatar', $_SESSION)) {
+    try {
+        $_SESSION['admin_avatar'] = (new App\Models\UserRepo($db))->avatarOf(Auth::ownerId());
+    } catch (\Throwable $e) {
+        $_SESSION['admin_avatar'] = '';   // walang larawan, hindi sirang pahina
+    }
+}
+
 require APP_ROOT . '/app/Views/sheet.php';

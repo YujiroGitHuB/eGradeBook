@@ -107,6 +107,23 @@ bridge instead. There is **no `admin_users` table here**; login (`AuthController
 via `UserRepo`, called from `login.php`) queries FormFlow's table directly via
 `password_verify`, so credentials stay in sync with FormFlow automatically.
 
+The **profile photo** rides along with those credentials: `admin_users.avatar`
+is read at login into `$_SESSION['admin_avatar']`. It is the one bridged value
+the SQL bridge cannot fully resolve — the column holds a path *relative to
+FormFlow's own folder* (`uploads/avatars/<random>.<ext>`) and the file lives on
+FormFlow's disk, so a browser-reachable base is needed: **`FORMFLOW_WEB_BASE`**
+in `inc/db.php`, defaulting to `../FormFlow/` (side-by-side deploy); `''`
+disables photos. `Auth::avatarUrl()` builds the URL and **sanitises it** — the
+value comes from another app's database and lands in a `src`, so anything with
+a scheme, a leading `//`, a backslash, or `..` is rejected (same posture as
+`AuthController::safeNext()`). `UserRepo` guards the column with
+`hasCol(..., FORMFLOW_DB)`: naming a column FormFlow hasn't migrated yet would
+fail the whole login query, locking everyone out over a picture. The view falls
+back to the `bi-person-circle` icon both when there is no photo and, via
+`onerror`, when the URL 404s. Sessions created before this feature are
+backfilled once in `index.php`; changing the photo in FormFlow reaches
+eGradeBook on the next login.
+
 ## Auth & access model
 
 - **`App\Core\Auth` is the only session gate.** `Auth::start()` sets the cookie

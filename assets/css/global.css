@@ -125,6 +125,21 @@ body {
 .profile-trigger:hover,
 .profile.open .profile-trigger { background: var(--surface2); border-color: var(--border); }
 .profile-avatar { color: var(--accent); font-size: 1.15rem; }
+
+/* Profile photo mula sa account sa FormFlow (admin_users.avatar). Bilog at
+   naka-crop, at `flex: none` para hindi ito pisilin ng mahabang pangalan sa
+   tabi — kapareho ng gawi ng icon na pinapalitan nito. */
+.profile-pic {
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+}
+.profile-menu-head > .profile-pic { width: 38px; height: 38px; }
+.nav-mobile-menu .menu-user .profile-pic { width: 22px; height: 22px; }
 .profile-name {
   font-weight: 500; max-width: 180px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap;

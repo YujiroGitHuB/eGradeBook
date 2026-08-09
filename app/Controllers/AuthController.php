@@ -40,6 +40,12 @@ class AuthController
             $_SESSION['admin_username'] = $user['username'];
             $_SESSION['admin_name']     = $user['full_name'] ?: $user['username'];
             $_SESSION['admin_role']     = $user['role'] ?? 'admin';
+            /* Ang profile photo ay sumasabay sa credentials — iisang account
+               ang FormFlow at eGradeBook, kaya dapat iisa rin ang mukha. Path
+               lang ito na relatibo sa folder ng FormFlow; ang Auth::avatarUrl()
+               ang bumubuo ng URL at siya ring naglilinis nito. Kapag pinalitan
+               ang larawan sa FormFlow, sa susunod na login ito aabot dito. */
+            $_SESSION['admin_avatar']   = (string)($user['avatar'] ?? '');
             header('Location: ' . self::safeNext($next));
             exit;
         }
