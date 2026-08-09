@@ -336,6 +336,23 @@ class Schema
            talaan ng buong app (gaya ng grade_schema_version). Ang superadmin
            ay LAGING pasado kahit wala rito, kaya walang paraang ma-lock out
            ang sarili (tingnan ang Auth::requireAccess). */
+        /* Ulo ng mga PDF report — pangalan ng paaralan, departamento, pamagat,
+           guro, at footer note. Isa kada guro (kaya owner_id ang PK), hindi
+           kada klase: iisang paaralan at iisang pirma ang gagamitin sa bawat
+           section at bawat semestre, kaya nakakapagod na ipatipa ito nang
+           paulit-ulit. Ang blangkong field ay TINATANGGAL sa PDF, hindi
+           ipinapakitang walang laman — kaya ang gurong hindi ito hinawakan
+           kailanman ay makakakuha ng eksaktong lumang anyo. */
+        $conn->query("CREATE TABLE IF NOT EXISTS grade_report_header (
+            owner_id   INT NOT NULL PRIMARY KEY,
+            school     VARCHAR(150) NOT NULL DEFAULT '',
+            department VARCHAR(150) NOT NULL DEFAULT '',
+            title      VARCHAR(120) NOT NULL DEFAULT '',
+            faculty    VARCHAR(150) NOT NULL DEFAULT '',
+            note       VARCHAR(255) NOT NULL DEFAULT '',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )");
+
         $conn->query("CREATE TABLE IF NOT EXISTS grade_app_access (
             admin_id   INT NOT NULL,
             granted_by INT NOT NULL DEFAULT 0,

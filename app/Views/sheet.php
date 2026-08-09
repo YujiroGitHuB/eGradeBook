@@ -115,6 +115,7 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
                         <button class="profile-menu-item" id="btnBackup" role="menuitem"><i class="bi bi-file-earmark-excel"></i> Backup all (Excel)</button>
                         <button class="profile-menu-item" id="btnPdfSection" role="menuitem" title="PDF of the current section's grades"><i class="bi bi-file-earmark-pdf"></i> Export section (PDF)</button>
                         <button class="profile-menu-item" id="btnPdfAll" role="menuitem" title="One combined PDF of every section's grades"><i class="bi bi-file-earmark-pdf-fill"></i> Export all (PDF)</button>
+                        <button class="profile-menu-item" id="btnReportHdr" role="menuitem" title="School name, department and signature line printed on the PDFs"><i class="bi bi-card-heading"></i> Report header…</button>
                         <button class="profile-menu-item" id="btnPrint" role="menuitem"><i class="bi bi-printer"></i> Print</button>
                         <?php if (\App\Core\Auth::isSuperadmin()): ?>
                             <div class="profile-menu-divider"></div>
@@ -476,6 +477,51 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
             <div class="modal-actions" style="margin-top:1.4rem;">
                 <button class="btn btn-ghost" id="copyCancel">Cancel</button>
                 <button class="btn btn-primary" id="copyApply" disabled><i class="bi bi-copy"></i> Copy setup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Header Modal — kung ano ang nakalimbag sa ulo ng mga PDF.
+         Isa kada guro, hindi kada klase (tingnan ang ReportRepo). Ang
+         blangkong field ay hindi lumilitaw sa PDF, kaya ang hindi humahawak
+         nito ay nananatili sa dating anyo. -->
+    <div class="modal-backdrop" id="rhModal">
+        <div class="modal gs-maccent" style="max-width:520px;">
+            <div class="gs-mhead">
+                <div class="gs-mhead-ic"><i class="bi bi-card-heading"></i></div>
+                <div>
+                    <h3 class="gs-mtitle">Report header</h3>
+                    <p class="gs-msub">Printed at the top of every PDF — the grade sheet and each student's grade slip.</p>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:.9rem;margin:1.1rem 0 0;">
+                <div class="gs-field">
+                    <label for="rhSchool">School / Institution</label>
+                    <input id="rhSchool" class="gs-input" maxlength="150" autocomplete="off" placeholder="e.g. Bulacan Christian College">
+                </div>
+                <div class="gs-field">
+                    <label for="rhDept">Department / Program</label>
+                    <input id="rhDept" class="gs-input" maxlength="150" autocomplete="off" placeholder="e.g. College of Information Technology">
+                </div>
+                <div class="gs-field">
+                    <label for="rhTitle">Report title</label>
+                    <input id="rhTitle" class="gs-input" maxlength="120" autocomplete="off" placeholder="Grade Sheet">
+                </div>
+                <div class="gs-field">
+                    <label for="rhFaculty">Faculty name</label>
+                    <input id="rhFaculty" class="gs-input" maxlength="150" autocomplete="off" placeholder="Your name as it should appear">
+                </div>
+                <div class="gs-field">
+                    <label for="rhNote">Footer line</label>
+                    <input id="rhNote" class="gs-input" maxlength="255" autocomplete="off" placeholder="e.g. Prepared by: ______   Noted by: ______">
+                </div>
+                <p class="bulk-note" style="margin:0;"><i class="bi bi-info-circle"></i> Leave a field blank to keep it off the PDF entirely. This applies to <b>all your sections</b>, not just this one.</p>
+                <p id="rhErr" class="bulk-err" style="display:none;"></p>
+            </div>
+            <div class="modal-actions" style="margin-top:1.3rem;">
+                <button class="btn btn-ghost btn-sm" id="rhUseMyName" style="margin-right:auto;"><i class="bi bi-person"></i> Use my account name</button>
+                <button class="btn btn-ghost" id="rhCancel">Cancel</button>
+                <button class="btn btn-primary" id="rhSave"><i class="bi bi-check-lg"></i> Save header</button>
             </div>
         </div>
     </div>

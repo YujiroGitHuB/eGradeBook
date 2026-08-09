@@ -1652,10 +1652,22 @@ table.gs tbody td.fin-cell {
         margin: 0 0 8px;
         color: #000;
     }
+    /* Paaralan/departamento mula sa Report header — pareho ng inilalagay sa
+       mga PDF, para iisa ang anyo ng lahat ng lumalabas sa papel. Hindi
+       nire-render ang mga ito kapag blangko, kaya walang bakanteng linya. */
+    .gs-print-head .gph-school {
+        font-size: 1rem;
+        font-weight: 700;
+    }
+    .gs-print-head .gph-dept {
+        font-size: .78rem;
+        color: #444;
+    }
     .gs-print-head .gph-title {
         font-size: 1.15rem;
         font-weight: 700;
         letter-spacing: -.01em;
+        margin-top: 2px;
     }
     .gs-print-head .gph-meta {
         display: flex;

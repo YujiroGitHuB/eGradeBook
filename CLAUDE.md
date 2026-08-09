@@ -366,6 +366,21 @@ object, and computes grades client-side. Grading logic to preserve when editing:
   A category whose columns are all unchecked contributes 0% at full weight,
   matching how a category with no activities has always behaved.
 
+- **PDF/print header** — school, department, title, faculty and a footer line
+  live in `grade_report_header`, **one row per teacher, no class scope**
+  (`ReportRepo`, `get_report_header` / `save_report_header`, More ▸ Output ▸
+  Report header…). One school and one signature serve every section and term,
+  so scoping it per class would just mean retyping. **A blank field is omitted
+  from the output entirely**, never printed empty — so a teacher who never
+  opens the editor gets exactly the old layout. `grades.js` caches it in
+  `REPORT_HDR` because "Export all" walks many sections and must not refetch
+  per page. All three outputs share it: the section PDF, the student grade slip
+  (which keeps its own "Grade Slip" title — it is a different document), and
+  the browser Print header. Note the faculty name came from
+  `document.querySelector('.user-pill span')`, which is *FormFlow's* class and
+  does not exist in this app, so "Faculty:" was silently blank on every PDF and
+  printout; `reportFaculty()` now reads the saved name, falling back to
+  `.profile-name`.
 - **Never call the browser's `confirm()`** — use `await uiConfirm({title,
   message, ok, icon, danger})` in `grades.js`, which drives the shared
   `#uiConfirmModal` and resolves to a boolean. The native dialog is stamped

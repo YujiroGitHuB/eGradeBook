@@ -14,6 +14,7 @@ use App\Controllers\StatusController;
 use App\Controllers\ClassController;
 use App\Controllers\ResetController;
 use App\Controllers\AccessController;
+use App\Controllers\ReportController;
 
 /* ============================================================
    Router — maps a `?api=` action to [ControllerClass, method]. Keeps
@@ -74,6 +75,9 @@ class Router
         // danger zone — wipes a gradebook (type-to-confirm; me / one teacher / all)
         'reset_all'             => [ResetController::class, 'clearAll'],
         'reset_targets'         => [ResetController::class, 'targets'],
+        // PDF report header (per teacher, not per class)
+        'get_report_header'     => [ReportController::class, 'getHeader'],
+        'save_report_header'    => [ReportController::class, 'saveHeader'],
         // app allowlist — SUPERADMIN ONLY (re-checked inside the controller)
         'access_list'           => [AccessController::class, 'listAccounts'],
         'set_access'            => [AccessController::class, 'setAccess'],

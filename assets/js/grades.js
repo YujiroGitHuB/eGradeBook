@@ -1122,15 +1122,23 @@ function render() {
             Weights ${(+totalWeight.toFixed(2))}%${ok ? '' : ' — should be 100%'}${inclForms}</span></div>`;
     }
 
-    /* print-only header — Section / Faculty / Passing / Date + compact summary */
-    const teacher  = (document.querySelector('.user-pill span')?.textContent || '').trim();
+    /* print-only header — Section / Faculty / Passing / Date + compact summary.
+       Ang '.user-pill span' na hinahanap dito dati ay klase ng FormFlow, wala
+       rito — kaya "—" ang Faculty sa bawat print mula pa noon. Ang REPORT_HDR
+       ay puwedeng wala pa (hindi pa naibubukas ang PDF o ang editor) — hindi
+       ito hinihintay: sinsero pa ring lumalabas ang print, at kompleto na sa
+       susunod na render. */
+    const teacher  = reportFaculty(REPORT_HDR);
     const passVal  = $('numPass').value || '75';
     const today    = new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
     const clsAvg   = pctN ? (pctSum / pctN).toFixed(1) + '%' : '—';
     const passRate = pctN ? Math.round(passCount / pctN * 100) + '%' : '—';
+    const _rh = REPORT_HDR || {};
     const printHead = `
         <div class="gs-print-head">
-            <div class="gph-title">Grading Sheet</div>
+            ${_rh.school ? `<div class="gph-school">${escHtml(_rh.school)}</div>` : ''}
+            ${_rh.department ? `<div class="gph-dept">${escHtml(_rh.department)}</div>` : ''}
+            <div class="gph-title">${escHtml(_rh.title || 'Grading Sheet')}</div>
             <div class="gph-meta">
                 <span><b>Section:</b> ${escHtml(SHEET.section || '—')}</span>
                 <span><b>Faculty:</b> ${escHtml(teacher || '—')}</span>
@@ -2617,6 +2625,97 @@ function loadExternalScript(src) {
     });
 }
 
+/* ── Report header (ulo ng mga PDF) ──────────────────────────
+   Isa kada guro, hindi kada klase. Naka-cache dito matapos ang unang hingi,
+   dahil ang "Export all" ay dumadaan sa maraming section at hindi dapat
+   umuulit ang tawag kada pahina. */
+let REPORT_HDR = null;
+let rhSuggestName = '';
+
+async function loadReportHeader() {
+    if (REPORT_HDR) return REPORT_HDR;
+    const d = await apiGet({ api: 'get_report_header' });
+    /* Kapag pumalya (walang network, lumang server), blangko — mas mabuting
+       mawalan ng ulo ang PDF kaysa hindi tuluyang ma-export. */
+    REPORT_HDR = (d && d.success && d.header) ? d.header
+        : { school: '', department: '', title: '', faculty: '', note: '' };
+    if (d && d.suggest_faculty) rhSuggestName = d.suggest_faculty;
+    return REPORT_HDR;
+}
+
+/* Ang pangalan ng gurong ilalagay sa report: ang tahasang itinakda muna, tapos
+   ang pangalan sa navbar. (Ang lumang code dito ay humahanap ng '.user-pill
+   span' — klase iyon ng FormFlow, wala rito, kaya BLANGKO ang Faculty sa bawat
+   PDF mula pa noon.) */
+function reportFaculty(hdr) {
+    if (hdr && hdr.faculty) return hdr.faculty;
+    const el = document.querySelector('.profile-name');
+    return el ? el.textContent.trim() : '';
+}
+
+/* Iguhit ang ulo sa itaas ng isang pahina; ibinabalik ang y kung saan puwede
+   nang magsimula ang laman. Ang blangkong field ay LINALAKTAWAN — walang
+   naiiwang bakanteng linya, kaya ang hindi humahawak ng setting na ito ay
+   nakakakuha ng eksaktong dating anyo. */
+function drawReportHead(doc, hdr, opts) {
+    const o = opts || {};
+    const left = o.left || 40;
+    const fallbackTitle = o.fallbackTitle || 'eGradeBook — Grade Sheet';
+    let y = o.top || 42;
+
+    if (hdr.school) {
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(20);
+        doc.text(hdr.school, left, y); y += 15;
+    }
+    if (hdr.department) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(110);
+        doc.text(hdr.department, left, y); y += 14;
+    }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(hdr.school ? 12 : 15); doc.setTextColor(20);
+    doc.text(hdr.title || fallbackTitle, left, y); y += 18;
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(0);
+    return y;
+}
+
+/* ── Report header editor ── */
+async function openReportHdr() {
+    $('rhErr').style.display = 'none';
+    $('rhModal').classList.add('show');
+    const h = await loadReportHeader();
+    $('rhSchool').value  = h.school || '';
+    $('rhDept').value    = h.department || '';
+    $('rhTitle').value   = h.title || '';
+    $('rhFaculty').value = h.faculty || '';
+    $('rhNote').value    = h.note || '';
+    setTimeout(() => $('rhSchool').focus(), 60);
+}
+function closeReportHdr() { $('rhModal').classList.remove('show'); }
+
+async function saveReportHdr() {
+    const btn = $('rhSave');
+    btn.disabled = true;
+    const d = await apiPost({
+        api: 'save_report_header',
+        school: $('rhSchool').value,
+        department: $('rhDept').value,
+        title: $('rhTitle').value,
+        faculty: $('rhFaculty').value,
+        note: $('rhNote').value,
+    });
+    btn.disabled = false;
+    if (!d.success) {
+        $('rhErr').textContent = d.message || 'Could not save the report header.';
+        $('rhErr').style.display = 'block';
+        return;
+    }
+    /* Ang NILINIS na halaga ng server ang itinatago at ipinapakita — kung may
+       pinutol o inalis na bagong linya, dapat iyon ang makita ng guro, hindi
+       ang tinipa niya. */
+    REPORT_HDR = d.header;
+    closeReportHdr();
+    showToastSafe('Report header saved — it applies to every PDF.', 'success');
+}
+
 /* Export the current section only → PDF (same layout as Export all). */
 async function exportSectionPDF() {
     if (!SHEET || !SHEET.section) { showToastSafe('Select a section first before exporting.', 'error'); return; }
@@ -2649,7 +2748,8 @@ async function buildSectionsPDF(sections, fileBase) {
     const missingZero = $('chkMissingZero') ? $('chkMissingZero').checked : false;
 
     const doc = new jsPDFctor({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-    const teacher = (document.querySelector('.user-pill span')?.textContent || '').trim();
+    const hdr = await loadReportHeader();
+    const teacher = reportFaculty(hdr);
 
     /* the grade helpers read the globals SHEET / selectedCols — swap them per
        section, then restore so the live view is untouched afterwards */
@@ -2719,16 +2819,15 @@ async function buildSectionsPDF(sections, fileBase) {
             if (pageAdded) doc.addPage();
             pageAdded = true;
 
-            doc.setFontSize(15); doc.setTextColor(20);
-            doc.text('eGradeBook — Grade Sheet', 40, 42);
+            let hy = drawReportHead(doc, hdr, { left: 40, top: 42 });
             doc.setFontSize(9.5); doc.setTextColor(110);
             const meta = `Section: ${sec}    ·    Mode: ${termMode ? 'Term (Midterm / Final)' : 'Coursework'}    ·    Passing: ${pass}%`;
-            doc.text(meta, 40, 60);
-            doc.text(`${teacher ? 'Faculty: ' + teacher + '    ·    ' : ''}Exported: ${new Date().toLocaleString()}`, 40, 74);
+            doc.text(meta, 40, hy); hy += 14;
+            doc.text(`${teacher ? 'Faculty: ' + teacher + '    ·    ' : ''}Exported: ${new Date().toLocaleString()}`, 40, hy); hy += 14;
             doc.setTextColor(0);
 
             doc.autoTable({
-                head, body, startY: 88,
+                head, body, startY: hy,
                 styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak', halign: 'center', valign: 'middle' },
                 headStyles: { fillColor: [37, 99, 235], textColor: 255, halign: 'center', fontSize: 6.8 },
                 columnStyles: {
@@ -2747,6 +2846,7 @@ async function buildSectionsPDF(sections, fileBase) {
                 didDrawPage: () => {
                     doc.setFontSize(8); doc.setTextColor(150);
                     const w = doc.internal.pageSize.getWidth(), h = doc.internal.pageSize.getHeight();
+                    if (hdr.note) doc.text(hdr.note, 40, h - 20);
                     doc.text(`Page ${doc.internal.getNumberOfPages()}`, w - 60, h - 20);
                     doc.setTextColor(0);
                 },
@@ -2982,10 +3082,17 @@ async function exportStudentPDF() {
     };
     const rule = () => { doc.setDrawColor(210); doc.line(left, y, right, y); };
 
-    put('eGradeBook — Grade Slip', left, { bold: true, size: 16 }); nl(22);
+    /* Ang ulo ay pareho ng grade sheet — paaralan/departamento galing sa
+       setting ng guro — pero LAGING "Grade Slip" ang pamagat: ibang dokumento
+       ito, at ang pamagat ng buong sheet ("Grade Sheet") ay mali rito. */
+    const hdr = await loadReportHeader();
+    if (hdr.school)     { put(hdr.school, left, { bold: true, size: 13 }); nl(16); }
+    if (hdr.department) { put(hdr.department, left, { size: 9.5, color: [110, 110, 110] }); nl(14); }
+    put('Grade Slip', left, { bold: true, size: hdr.school ? 13 : 16 }); nl(22);
+
     put(s.fullname || 'Student', left, { bold: true, size: 13 });
     put(`No. ${s.student_no || ''}`, right, { size: 10, color: [110, 110, 110], align: 'right' }); nl(16);
-    const teacher = (document.querySelector('.user-pill span')?.textContent || '').trim();
+    const teacher = reportFaculty(hdr);
     put(`Section: ${SHEET.section}${teacher ? '   ·   Faculty: ' + teacher : ''}`, left, { size: 9, color: [110, 110, 110] }); nl(12);
     put(`Generated: ${new Date().toLocaleString()}`, left, { size: 9, color: [110, 110, 110] }); nl(10);
     rule(); nl(22);
@@ -3055,6 +3162,17 @@ async function exportStudentPDF() {
         const remark = status ? (STATUS_FULL[status] || status) : (cg.gotAny ? (isPass ? 'Passed' : 'Failed') : '—');
         put('Remark', left, { bold: true, size: 10 });
         put(remark, right, { bold: true, size: 10, align: 'right', color: status ? [180, 100, 10] : (isPass ? [22, 128, 61] : [190, 40, 40]) }); nl(16);
+    }
+
+    /* Footer note ng guro (hal. "Prepared by: ___ Noted by: ___") — sa ibaba
+       ng pahina, hindi kasunod ng huling linya, para pare-pareho ang puwesto
+       nito sa bawat slip anuman ang haba ng breakdown. */
+    if (hdr.note) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(130);
+        doc.text(hdr.note, left, pageH - 40);
+        doc.setTextColor(0);
     }
 
     const safe = String(s.student_no || 'student').replace(/[^\w.-]+/g, '_');
@@ -3687,6 +3805,22 @@ $('btnCopyFrom').addEventListener('click', openCopyModal);
 $('btnRetag').addEventListener('click', openRetag);
 $('retagCancel').addEventListener('click', closeRetag);
 $('retagApply').addEventListener('click', applyRetag);
+$('btnReportHdr').addEventListener('click', openReportHdr);
+$('rhCancel').addEventListener('click', closeReportHdr);
+$('rhSave').addEventListener('click', saveReportHdr);
+/* Mungkahi lang ang pangalan sa account — madalas may titulo pa ang gustong
+   lumabas sa report, kaya hindi ito basta ipinipilit. */
+$('rhUseMyName').addEventListener('click', () => {
+    const el = document.querySelector('.profile-name');
+    $('rhFaculty').value = rhSuggestName || (el ? el.textContent.trim() : '');
+    $('rhFaculty').focus();
+});
+['rhSchool', 'rhDept', 'rhTitle', 'rhFaculty', 'rhNote'].forEach(id => {
+    $(id).addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); saveReportHdr(); }
+    });
+});
+
 /* Superadmin lang ang may ganitong menu item at modal — kaya naka-guard. */
 if ($('btnAccess')) $('btnAccess').addEventListener('click', openAccessModal);
 if ($('accessClose')) $('accessClose').addEventListener('click', closeAccessModal);
@@ -3824,5 +3958,11 @@ if ($('btnCancelClass')) $('btnCancelClass').addEventListener('click', revertCla
         if (e.key === 'Enter') { e.preventDefault(); onCreateClass(); }
         else if (e.key === 'Escape') { e.preventDefault(); revertClassSelect(); }
     });
+});
+/* Kunin agad ang ulo ng report para tama na ang print header nang hindi
+   kailangang magbukas muna ng PDF. Hindi ito hinihintay ng unang render —
+   kapag may laman nga, isang re-render lang ang idinadagdag nito. */
+loadReportHeader().then(h => {
+    if (SHEET && (h.school || h.department || h.title || h.faculty)) render();
 });
 loadSections();
