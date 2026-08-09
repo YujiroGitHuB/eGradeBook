@@ -239,7 +239,7 @@ Layers under `app/`:
   holds `$db`/`$ownerId`, gives `json`/`ok`/`fail`/`post`/`get`/`classScope()`
   helpers), `ClassScope` (the class-scope DTO — see "Class scoping"), and
   `Router` (maps every `?api=` action name → `[Controller::class, 'method']` —
-  **register new actions here**; all 33 actions are listed in `Core/Router.php`).
+  **register new actions here**; all 34 actions are listed in `Core/Router.php`).
 - **`Models/`** — one owner-scoped repository per table/domain. Grade tables:
   `ActivityRepo`, `ScoreRepo`, `CategoryRepo`, `SettingsRepo`, `TransmuteRepo`
   (holds `DEFAULT_EQUIV`), `StatusRepo`, `FormMetaRepo`, `AttendanceRepo`,
@@ -256,7 +256,14 @@ Layers under `app/`:
   (`reorder_columns` + `set_form_meta`), `AttendanceController`,
   `SettingsController`, `TransmuteController` (its get-bands method is
   **`getBands()`**, not `get()`, to avoid clashing with the base
-  `Controller::get()` input helper), `CategoryController`, `StatusController`,
+  `Controller::get()` input helper), `CategoryController` (incl.
+  `copy_categories` — Midterm ⇄ Final within one class; it **merges**:
+  same-named categories take the source's weight, missing ones are inserted,
+  and target-only ones are *never* deleted, because deleting a category
+  unassigns every activity/form/attendance column pointing at it via
+  `deleteWithUnassign()`. Safe to re-run; returns the class's full new category
+  list so the client gets real ids for the column-header dropdowns without a
+  sheet reload), `StatusController`,
   `ClassController` (`retag_class`), `ResetController` (`reset_all` — the
   danger-zone "Clear all my data", see below), plus `AuthController` (login,
   used by `login.php`).

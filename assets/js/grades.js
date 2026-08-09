@@ -1860,6 +1860,16 @@ async function onActivityEdit(e) {
 }
 
 /* ── Add activity ───────────────────────────────────────── */
+
+/* Ang huling term/category na ginamit sa PAGDARAGDAG ng activity. Sunod-sunod
+   ang paggawa ng column ("Quiz 1", "Quiz 2", …) at halos laging iisa ang term
+   at category ng mga iyon, kaya sayang ang bawat muling pagpili. Sa memorya
+   lang ito — kada section/klase ay ibang set ng category id, at sinusuri
+   naman sa ibaba kung buhay pa ang naaalalang id bago ito i-preselect. */
+let lastActTerm = '';
+let lastActCat  = '';
+let lastActCatName = '';   // pang-match kapag ibang klase / ibang term ang id
+
 function openActModal() {
     if (!SHEET) {
         showToastSafe('Select a section first before adding an activity.', 'error');
@@ -1867,8 +1877,53 @@ function openActModal() {
     }
     $('actTitle').value = '';
     $('actMax').value = 100;
+
+    /* Sa flat mode ay max points at weight ang gamit, hindi term/category —
+       itago ang dalawa para hindi magmukhang may hinihinging wala namang
+       silbi. Tugma ito sa header, na ganito rin ang pagpili (grades.js:757). */
+    const termMode = SHEET.term_mode === true;
+    $('actTermWrap').style.display = termMode ? 'flex' : 'none';
+    $('actCatWrap').style.display  = termMode ? 'flex' : 'none';
+    if (termMode) {
+        $('actTerm').value = lastActTerm;
+        fillActCatOptions(lastActCat, lastActCatName);
+    }
+
     $('actModal').classList.add('show');
     setTimeout(() => $('actTitle').focus(), 50);
+}
+
+/* Punan ang Category dropdown ayon sa napiling Term. Ang mga category ay
+   per-term, kaya kailangang muling buuin sa tuwing magpapalit ng term —
+   pareho ito ng ginagawa ng column header (grades.js:808).
+
+   Dalawang antas ang pagpili: id muna, tapos PANGALAN. Karaniwang magkatulad
+   ang hanay ng category ng Midterm at Final (Quiz / Activity / Attendance /
+   Exam), pero magkaibang row sila kaya magkaibang id — kung id lang ang
+   susundan, ang paglipat ng term ay laging nagre-reset sa "Not set". */
+function fillActCatOptions(preferId, preferName) {
+    const term = $('actTerm').value;
+    const cats = (SHEET && SHEET.categories || []).filter(k => k.term === term);
+    const sel = $('actCat');
+    sel.innerHTML = '<option value="">— Not set —</option>'
+        + cats.map(k => `<option value="${k.id}">${escHtml(k.name)}</option>`).join('');
+
+    const byId = cats.find(k => String(k.id) === String(preferId));
+    const byName = preferName
+        ? cats.find(k => k.name.toLowerCase() === String(preferName).toLowerCase())
+        : null;
+    sel.value = byId ? String(byId.id) : (byName ? String(byName.id) : '');
+
+    const hint = $('actCatHint');
+    if (!term) {
+        hint.innerHTML = '<i class="bi bi-info-circle"></i> Pick a term first to see its categories.';
+        hint.style.display = 'block';
+    } else if (!cats.length) {
+        hint.innerHTML = '<i class="bi bi-info-circle"></i> No categories for this term yet — add them in <b>Grade setup</b>.';
+        hint.style.display = 'block';
+    } else {
+        hint.style.display = 'none';
+    }
 }
 
 function closeActModal() {
@@ -1882,15 +1937,30 @@ async function saveActivity() {
         $('actTitle').focus();
         return;
     }
+    /* Term mode lang may term/category — sa flat mode ay nakatago ang dalawa,
+       at ipinapadala natin silang blangko para hindi makadikit ang lumang pili
+       sa isang column na hindi naman ito kailangan. */
+    const termMode = SHEET.term_mode === true;
+    const term = termMode ? $('actTerm').value : '';
+    const cat  = termMode ? $('actCat').value  : '';
+
     const d = await apiPost({
         api: 'add_activity',
         section: SHEET.section,
         title,
-        max_points: max
+        max_points: max,
+        term,
+        category_id: cat
     });
     if (!d.success) {
         showToastSafe(d.message || 'Could not add activity', 'error');
         return;
+    }
+    if (termMode) {                                            // handa na sa susunod
+        lastActTerm = term;
+        lastActCat  = cat;
+        const k = (SHEET.categories || []).find(x => String(x.id) === String(cat));
+        lastActCatName = k ? k.name : '';
     }
     SHEET.columns.push(d.activity);
     selectedCols.add(d.activity.key);
@@ -2243,15 +2313,55 @@ function renderSetup() {
                 <input type="number" class="setup-wt" value="${(+c.weight || 0)}" min="0" step="1" data-id="${c.id}"> %
                 <button class="setup-del" data-id="${c.id}" title="Delete category">&times;</button>
             </div>`).join('');
+        /* "Copy from <kabilang term>" — halos laging magkatulad ang hanay ng
+           dalawang term, kaya dalawang beses tinitipa ang parehong apat na row.
+           Ipinapakita lang kung may makokopya nga sa kabila. */
+        const [otherKey, olabel] = tk === 'midterm' ? ['final', 'Final'] : ['midterm', 'Midterm'];
+        const otherHas = cats.some(c => c.term === otherKey);
+        const copyBtn = otherHas
+            ? `<button class="btn btn-ghost btn-sm setup-copy" data-from="${otherKey}" data-to="${tk}"
+                 title="Copy ${olabel}'s categories and weights here. Same-named ones are updated; nothing is deleted."><i class="bi bi-copy"></i> Copy from ${olabel}</button>`
+            : '';
         return `<div class="setup-term">
             <div class="setup-term-head"><b>${tlabel}</b> <span class="${ok ? 'wt-ok-txt' : 'wt-warn-txt'}">total ${(+total.toFixed(2))}%${ok ? ' ✓' : ' ⚠'}</span></div>
             ${rows || '<div class="bulk-note" style="padding:.2rem 0;">No categories yet.</div>'}
-            <button class="btn btn-ghost btn-sm setup-add" data-term="${tk}"><i class="bi bi-plus"></i> Add category</button>
+            <div class="setup-actions">
+                <button class="btn btn-ghost btn-sm setup-add" data-term="${tk}"><i class="bi bi-plus"></i> Add category</button>
+                ${copyBtn}
+            </div>
         </div>`;
     }).join('');
     $('setupBody').querySelectorAll('.setup-name, .setup-wt').forEach(inp => inp.addEventListener('change', saveCategoryEdit));
     $('setupBody').querySelectorAll('.setup-del').forEach(b => b.addEventListener('click', () => deleteCategory(parseInt(b.dataset.id))));
     $('setupBody').querySelectorAll('.setup-add').forEach(b => b.addEventListener('click', () => addCategory(b.dataset.term)));
+    $('setupBody').querySelectorAll('.setup-copy').forEach(b =>
+        b.addEventListener('click', () => copyCategories(b.dataset.from, b.dataset.to)));
+}
+
+/* Kopyahin ang hanay ng category ng kabilang term. Walang nabubura kailanman
+   — ang katulad ng pangalan ay na-a-update ang weight, ang wala pa ay
+   idinaragdag, at ang nasa term na ito LANG ay iniiwan. Kaya ligtas ulitin. */
+async function copyCategories(from, to) {
+    const labelOf = t => (t === 'midterm' ? 'Midterm' : 'Final');
+    const clash = (SHEET.categories || []).some(c => c.term === to);
+    if (clash && !confirm(
+        `Copy ${labelOf(from)}'s categories into ${labelOf(to)}?\n\n` +
+        `Categories with the same name get ${labelOf(from)}'s weight. New ones are added. ` +
+        `Nothing in ${labelOf(to)} is deleted.`)) return;
+
+    const d = await apiPost({ api: 'copy_categories', section: SHEET.section, from_term: from, to_term: to });
+    if (!d.success) { showToastSafe(d.message || 'Could not copy the categories.', 'error'); return; }
+
+    /* Ibinabalik ng server ang buong bagong listahan — kailangan ang TUNAY na
+       id ng bagong likha, dahil doon nakasalalay ang category dropdown ng
+       bawat column header. */
+    SHEET.categories = d.categories || SHEET.categories;
+    renderSetup();
+    render();
+    const bits = [];
+    if (d.added)   bits.push(`${d.added} added`);
+    if (d.updated) bits.push(`${d.updated} updated`);
+    showToastSafe(`Copied from ${labelOf(from)} — ${bits.join(', ')}.`, 'success');
 }
 
 async function saveCategoryEdit(e) {
@@ -3292,6 +3402,22 @@ $('btnPrint').addEventListener('click', () => {
 $('btnAddActivity').addEventListener('click', openActModal);
 $('actCancel').addEventListener('click', closeActModal);
 $('actSave').addEventListener('click', saveActivity);
+/* Palit ng term → ibang hanay ng category. Dala ang PANGALAN ng kasalukuyang
+   pili para manatili ang "Quiz" kapag Quiz din ang meron sa kabilang term. */
+if ($('actTerm')) {
+    $('actTerm').addEventListener('change', () => {
+        const cur = $('actCat').selectedOptions[0];
+        fillActCatOptions('', cur ? cur.textContent.trim() : '');
+    });
+}
+/* Enter sa pangalan/max = Add column. Hindi <form> ang modal kaya walang
+   implicit submit — sunod-sunod ang paggawa ng activity, sayang ang mouse. */
+['actTitle', 'actMax'].forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); saveActivity(); }
+    });
+});
 $('delActCancel').addEventListener('click', closeDelModal);
 $('delActConfirm').addEventListener('click', confirmDeleteActivity);
 $('bulkFillCancel').addEventListener('click', closeBulkFillModal);

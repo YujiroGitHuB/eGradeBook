@@ -296,6 +296,26 @@
                     <label for="actMax">Max points</label>
                     <input type="number" id="actMax" value="100" min="1" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:12px;padding:.6rem .85rem;font-size:.9rem;outline:none;width:120px;">
                 </div>
+                <!-- Term + category, term mode LANG (itinatago ng grades.js sa flat
+                     mode kung saan walang kahulugan ang mga ito). Matagal nang
+                     tinatanggap ng add_activity ang dalawang field na ito — hindi
+                     lang sila naipapadala, kaya bawat bagong column ay ipinapanganak
+                     na "term? / cat?" at inaayos pa sa header pagkatapos. -->
+                <div class="gs-field" id="actTermWrap" style="display:none;">
+                    <label for="actTerm">Term</label>
+                    <select id="actTerm" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:12px;padding:.6rem .85rem;font-size:.9rem;outline:none;">
+                        <option value="">— Not set —</option>
+                        <option value="midterm">Midterm</option>
+                        <option value="final">Final</option>
+                    </select>
+                </div>
+                <div class="gs-field" id="actCatWrap" style="display:none;">
+                    <label for="actCat">Category</label>
+                    <select id="actCat" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:12px;padding:.6rem .85rem;font-size:.9rem;outline:none;">
+                        <option value="">— Not set —</option>
+                    </select>
+                    <p class="bulk-note" id="actCatHint" style="margin:.15rem 0 0;display:none;"></p>
+                </div>
             </div>
             <div class="modal-actions" style="margin-top:1.4rem;">
                 <button class="btn btn-ghost" id="actCancel">Cancel</button>

@@ -1072,6 +1072,16 @@ th.frm-col {
     min-width: 0;
 }
 
+/* "Add category" + "Copy from <kabilang term>" — magkatabi, pumipila kapag
+   makitid ang modal. */
+.setup-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    align-items: center;
+    margin-top: .2rem;
+}
+
 .setup-name {
     flex: 1;
     min-width: 0;

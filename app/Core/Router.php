@@ -61,6 +61,7 @@ class Router
         // categories (term mode)
         'save_category'         => [CategoryController::class, 'save'],
         'delete_category'       => [CategoryController::class, 'delete'],
+        'copy_categories'       => [CategoryController::class, 'copyTerm'],
         // per-student status overrides
         'set_student_status'    => [StatusController::class, 'setOne'],
         'set_students_status'   => [StatusController::class, 'setMany'],

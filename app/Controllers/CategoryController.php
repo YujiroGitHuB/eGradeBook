@@ -31,6 +31,43 @@ class CategoryController extends Controller
         }
     }
 
+    /* Kopyahin ang mga category ng isang term papunta sa kabila, sa loob ng
+       kasalukuyang klase ("Copy from Midterm" sa Grade setup). Karaniwang
+       magkatulad ang dalawang term, kaya dalawang beses tinitipa ang parehong
+       apat na row. Merge ang gawi — tingnan ang CategoryRepo::copyTerm.
+
+       Ibinabalik ang buong bagong listahan ng category para may TAMANG id
+       agad ang kliyente sa mga bagong likha (kailangan iyon ng dropdown ng
+       bawat column header) nang walang buong reload ng sheet. */
+    public function copyTerm(): void
+    {
+        $scope = $this->classScope();
+        $from  = in_array($_POST['from_term'] ?? '', ['midterm', 'final'], true) ? $_POST['from_term'] : '';
+        $to    = in_array($_POST['to_term'] ?? '', ['midterm', 'final'], true) ? $_POST['to_term'] : '';
+
+        if (!$scope->hasSection()) {
+            $this->fail('No section.');
+            return;
+        }
+        if ($from === '' || $to === '' || $from === $to) {
+            $this->fail('Pick a different source term.');
+            return;
+        }
+
+        $repo = new CategoryRepo($this->db, $this->ownerId);
+        try {
+            $res = $repo->copyTerm($scope, $from, $to);
+            if ($res['added'] === 0 && $res['updated'] === 0) {
+                $this->fail('That term has no categories to copy.');
+                return;
+            }
+            $this->ok($res + ['categories' => $repo->forSheet($scope)]);
+        } catch (\Throwable $e) {
+            error_log('eGradeBook copy_categories failed: ' . $e);
+            $this->fail('Could not copy the categories. Nothing was changed.');
+        }
+    }
+
     /* Delete a category, unassigning the activities & form columns first.
        Keyed by category id, so it is correctly class-independent. */
     public function delete(): void
