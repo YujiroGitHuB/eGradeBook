@@ -1586,6 +1586,19 @@ table.gs tbody td.fin-cell {
     .gs-toolbar {
         flex-wrap: wrap;
     }
+
+    /* Ang More menu ay naka-`left: 0` mula sa 87px na trigger, kaya sa makitid
+       na screen ay umaabot ang 220px nitong lapad nang lampas sa gilid. At dahil
+       `opacity: 0` lang ito kapag sarado — hindi `display: none` — may sukat pa
+       rin ito at nadaragdag sa scrollWidth ng pahina KAHIT hindi nakabukas: may
+       pahalang na scroll ang buong pahina nang walang makitang dahilan.
+       Ikabit sa KANANG gilid ng trigger sa halip, at may takda pa ring lapad. */
+    .gs-more-menu {
+        left: auto;
+        right: 0;
+        transform-origin: top right;
+        max-width: calc(100vw - 2rem);
+    }
     .gs-toolbar .btn {
         flex: 1 1 auto;
         justify-content: center;
@@ -1611,10 +1624,18 @@ table.gs tbody td.fin-cell {
     }
 
     /* Isang kolumna na ang bar sa telepono: hindi na magkatabi ang dalawang
-       zone, kaya kaliwang-hanay ang kanan at buong-lapad ang mga field. */
+       zone, kaya kaliwang-hanay ang kanan at buong-lapad ang mga field.
+
+       Ang `min-width: 0` ang mahalaga rito: ang isang flex item ay may
+       min-width:auto bilang default, ibig sabihin HINDI ito puwedeng lumiit
+       nang mas maliit sa min-content ng pinakamatigas nitong anak. Ang
+       .gs-class-select ay may min-width, kaya nilalampasan ng zone ang
+       .gs-controls at ang buong pahina ang nagkakaroon ng pahalang na scroll —
+       hindi lang ang bahaging kailangan talagang mag-scroll (ang talahanayan). */
     .gs-czone-left,
     .gs-czone-right {
         flex: 1 1 100%;
+        min-width: 0;
         justify-content: flex-start;
     }
 
@@ -1628,7 +1649,13 @@ table.gs tbody td.fin-cell {
        gamit dito, hindi flex-basis (taas ang ibig sabihin niyon doon). */
     .gs-class-row { width: 100%; }
 
-    .gs-class-select {
+    /* KAILANGAN ang prefix na .gs-field: ang `.gs-field .gs-class-select`
+       (min-width: 220px) sa itaas ay may mas mataas na specificity, at ANG
+       MEDIA QUERY AY WALANG IDINARAGDAG NA SPECIFICITY — kaya ang hubad na
+       `.gs-class-select` dito ay natatalo, at nananatiling 220px ang select
+       kahit sa 320px na screen. Ito ang pangunahing sanhi ng pahalang na
+       scroll ng buong pahina sa telepono. */
+    .gs-field .gs-class-select {
         flex: 1 1 auto;
         min-width: 0;
     }

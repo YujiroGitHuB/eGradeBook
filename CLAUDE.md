@@ -499,6 +499,30 @@ theme persisted in `localStorage` under `ff_theme`, shared with FormFlow).
   marker is the file's mtime, **editing `Schema.php` re-runs the migrations by
   itself** — there is no version constant to remember to bump. Nothing else may
   write that table.
+- **Mobile layout: the page must never scroll horizontally — only `.gs-wrap`
+  may.** The grading table is legitimately wider than a phone and scrolls
+  inside its own `overflow: auto` container; if the *document* also scrolls
+  sideways, something is broken. Three causes have bitten already, all in the
+  `@media (max-width: 640px)` block of `grades.css`:
+  - **Media queries add no specificity.** `.gs-class-select { min-width: 0 }`
+    inside the query silently lost to `.gs-field .gs-class-select
+    { min-width: 220px }` outside it, so the class dropdown stayed 220px wide on
+    a 320px screen. Mobile overrides of a two-class rule need the same two
+    classes.
+  - **A flex item defaults to `min-width: auto`**, so it cannot shrink below its
+    content and will happily exceed its parent. `.gs-czone-left` / `-right` need
+    an explicit `min-width: 0`; the `.gs-field` children already had one.
+  - **A closed dropdown still occupies layout.** `.gs-more-menu` is hidden with
+    `opacity: 0`, not `display: none`, so its 220px width counted toward the page
+    width even while shut — horizontal scroll with nothing visible causing it. It
+    is right-anchored and width-capped on mobile.
+  Also `.modal-actions` (global.css) is `justify-content: flex-end` **and now
+  `flex-wrap: wrap`**: the four-button Transmutation footer overflowed to the
+  *left*, off-screen and unreachable, because left overflow does not grow
+  `scrollWidth`.
+  Verify by measuring, not by eye — a local `php -S` plus headless Chrome over
+  CDP, comparing `document.documentElement.scrollWidth` with `clientWidth` at
+  320/360/390px, with every modal and dropdown forced open.
 - **Errors: log the detail, show a sentence.** `index.php` and the controllers
   never put `$e->getMessage()` in a response — a teacher was seeing raw MySQL text
   like `Duplicate entry '230-…' for key 'PRIMARY'`. Use `error_log()` plus a

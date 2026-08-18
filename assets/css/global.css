@@ -350,7 +350,13 @@ body {
 }
 .modal h3 { font-size: 1.1rem; margin-bottom: .5rem; }
 .modal p  { font-size: .875rem; color: var(--muted); margin-bottom: 1.5rem; }
-.modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+/* Ang `flex-wrap` ang mahalaga: ang ilang modal ay may apat na pindutan
+   (hal. ang Transmutation — Add band / Reset / Cancel / Save table). Sa
+   telepono ay hindi sila magkakasya sa isang hilera, at dahil `flex-end` ang
+   pagkakahanay, ang labis ay lumalabas sa KALIWA — sa labas ng screen, at
+   hindi maaabot kahit i-scroll, dahil hindi lumalaki ang scrollWidth para sa
+   umaapaw pakaliwa. Kapag may wrap, bumababa na lang sila sa susunod na hilera. */
+.modal-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
 
 /* ── SPINNER ──────────────────────────────────────────────── */
 .spinner {
