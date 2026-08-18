@@ -298,7 +298,7 @@ Layers under `app/`:
 - **`Controllers/`** — thin: parse `$_POST/$_GET`, validate, call repos, echo
   JSON. One per API domain: `SectionController`, `SheetController`,
   `ActivityController` (the biggest — CRUD, bulk fill, CSV import, linked mode,
-  reorder, and the verbatim `copy_activities` orchestration), `ColumnController`
+  reorder, and the `copy_activities` orchestration — see "Copy from…" below), `ColumnController`
   (`reorder_columns` + `set_form_meta`), `AttendanceController`,
   `SettingsController`, `TransmuteController` (its get-bands method is
   **`getBands()`**, not `get()`, to avoid clashing with the base
@@ -323,6 +323,51 @@ a controller method + a `Router` map entry, with the SQL in a `Models/` repo (no
 the controller). The `sheet` read assembles `students` (roster), unified `columns`
 (FormFlow forms + manual activities + the optional auto attendance column), and a
 `scores[student_no][key]` map, which the frontend renders.
+
+## "Copy from…" (`copy_activities`) — two non-obvious rules
+
+Copies another section's **structure** (no scores) into the current class; both
+sections are read at the request's `school_year`/`semester`/`subject`, so only
+the section differs. Activities merge by lowercased title (duplicates skipped,
+appended after the existing `sort_order`), categories merge by
+`term|lowercased name`. It is safe to re-run.
+
+Two decisions in `ActivityController::copy()` exist because the plain merge got
+grades wrong:
+
+1. **Untouched seeded defaults are removed first**
+   (`CategoryRepo::clearUntouchedDefaults()`). Turning term mode on seeds
+   `Quiz 20 / Activity 30 / Attendance 10 / Exam 40` per term
+   (`CategoryRepo::DEFAULTS`, the single source for both seeding and
+   recognition). A merge only *adds*, so a teacher who enabled term mode
+   **before** copying ended up with the seeded 8 **plus** the copied set — and
+   because `termGrade()` adds a category's full weight to `totalW` even when it
+   holds no columns (`catPct = 0`), the empty leftovers silently dragged every
+   term grade down, roughly halving it. Only categories still matching a default
+   in **both name and weight** *and* with nothing pointing at them
+   (`grade_activities`, `grade_form_meta`, `grade_attendance_meta` — all three
+   carry `category_id`) are dropped, and only for terms the source actually
+   replaces, so a class never ends up with zero categories. Anything the teacher
+   renamed, re-weighted, or attached a column to survives — which can leave a
+   term over 100%, correctly, with the modal's "should be 100%" warning showing.
+   Since nothing references the dropped rows, plain `DELETE` is used rather than
+   `deleteWithUnassign()`.
+2. **`term_mode` is not OR'd.** The target keeps its own mode whenever it
+   already has a `grade_settings` row — the same rule `use_defense` follows.
+   The old `($srcTm === 1 || $tgtTm === 1)` never turned term mode *off*, but it
+   readily turned it *on*, so copying from a term-mode section silently flipped a
+   deliberately flat class into term mode with no warning and no way back through
+   the same button. The source only decides for a class with no row yet (a new
+   class), which is the case the setup copy is actually for.
+
+Note the copy writes `grade_settings` directly (`INSERT … ON DUPLICATE KEY
+UPDATE`) instead of going through `SettingsController::setTermMode()`, so it
+never triggers `seedDefaultsIfEmpty()` — copying into a fresh class has always
+produced the copied categories alone. Only the enable-then-copy order was broken.
+
+With the settings toggle **off**, copied activities land with `term = ''` and
+`category_id = NULL`. In term mode `termGrade()` matches on `c.term === term`, so
+those columns render but count toward nothing until a term is assigned per column.
 
 ## Frontend (`assets/js/`)
 

@@ -3,10 +3,12 @@
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Core\ClassScope;
 use App\Models\ActivityRepo;
 use App\Models\ScoreRepo;
 use App\Models\RosterRepo;
 use App\Models\ClassRepo;
+use App\Models\CategoryRepo;
 
 /* Manual activity columns + their scores: CRUD, bulk fill, CSV import,
    linked (same-score) mode, reorder, and copy-from-section. */
@@ -367,7 +369,30 @@ class ActivityController extends Controller
         /* optional: copy categories (merge by term+name) and mirror settings */
         $catMap = [];
         $catsCopied = 0;
+        $catsCleared = 0;
         if ($inclSet) {
+            /* Basahin MUNA ang pinagmulan: kailangan ang listahan ng term nito bago
+               linisin ang target sa ibaba. */
+            $srcCats = [];
+            $sc = $conn->prepare("SELECT id, term, name, weight, sort_order FROM grade_categories WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=? ORDER BY sort_order, id");
+            $sc->bind_param('issss', $admin_id, $fromSection, $sy, $sem, $subj);
+            $sc->execute();
+            $scRes = $sc->get_result();
+            while ($cat = $scRes->fetch_assoc()) $srcCats[] = $cat;
+            $sc->close();
+
+            /* MERGE lang ang pagkopya — nagdaragdag, hindi bumubura. Kaya kung
+               naunang binuksan ang term mode, naroon na ang 8 inihasik na default at
+               sasabay sila sa nakokopya: dobleng hanay ng category, at dahil buo pa
+               rin ang timbang ng walang lamang category sa termGrade(), tahimik na
+               nababawasan ang term grade ng lahat. Alisin ang HINDI PA nagagalaw na
+               default, sa mga term lang na may dalang kapalit ang pinagmulan. */
+            $srcTerms = array_values(array_unique(array_map(fn($x) => (string)$x['term'], $srcCats)));
+            if ($srcTerms) {
+                $catsCleared = (new CategoryRepo($this->db, $this->ownerId))
+                    ->clearUntouchedDefaults(new ClassScope($sy, $sem, $toSection, $subj), $srcTerms);
+            }
+
             $tgtCats = [];
             $tc = $conn->prepare("SELECT id, term, name FROM grade_categories WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=?");
             $tc->bind_param('issss', $admin_id, $toSection, $sy, $sem, $subj);
@@ -376,12 +401,8 @@ class ActivityController extends Controller
             while ($t = $tcRes->fetch_assoc()) $tgtCats[$t['term'] . '|' . strtolower(trim($t['name']))] = (int)$t['id'];
             $tc->close();
 
-            $sc = $conn->prepare("SELECT id, term, name, weight, sort_order FROM grade_categories WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=? ORDER BY sort_order, id");
-            $sc->bind_param('issss', $admin_id, $fromSection, $sy, $sem, $subj);
-            $sc->execute();
-            $scRes = $sc->get_result();
             $insCat = $conn->prepare("INSERT INTO grade_categories (owner_id, section, term, name, weight, sort_order, school_year, semester, subject) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            while ($cat = $scRes->fetch_assoc()) {
+            foreach ($srcCats as $cat) {
                 $ckey = $cat['term'] . '|' . strtolower(trim($cat['name']));
                 if (isset($tgtCats[$ckey])) {
                     $catMap[(int)$cat['id']] = $tgtCats[$ckey];
@@ -395,7 +416,6 @@ class ActivityController extends Controller
                 }
             }
             $insCat->close();
-            $sc->close();
         }
 
         /* insert copied activity columns */
@@ -446,7 +466,15 @@ class ActivityController extends Controller
                 $tgtTm = (int)$g2['term_mode'];
                 $tgtUd = (int)$g2['use_defense'];
             }
-            $newTm = ($srcTm === 1 || $tgtTm === 1) ? 1 : 0;
+            /* Ang KLASENG ito ang may hawak ng sariling mode kapag may naisulat na
+               itong grade_settings — gaya na ng ginagawa ng use_defense sa ibaba.
+               Dating `$srcTm === 1 || $tgtTm === 1` ito: hindi nga nakakapatay ng
+               naka-ON, pero KAYANG-KAYA nitong magbukas — kaya ang klaseng sinadyang
+               flat ay biglang napupunta sa term mode dahil lang sa pinagkopyahan,
+               nang walang babala at walang pabalik sa parehong pindutan. Ang source
+               na lang ang magtatakda kapag WALA pang row (bagong klase) — doon
+               naman talaga nakalaan ang pagsalin ng setup. */
+            $newTm = ($tgtUd === null) ? $srcTm : $tgtTm;
             $newUd = ($tgtUd === null) ? $srcUd : $tgtUd;
             $up = $conn->prepare(
                 "INSERT INTO grade_settings (owner_id, section, use_defense, term_mode, school_year, semester, subject) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -461,6 +489,7 @@ class ActivityController extends Controller
         $parts[] = "Copied $copied activit" . ($copied === 1 ? 'y' : 'ies');
         if ($skipped > 0) $parts[] = "skipped $skipped duplicate" . ($skipped === 1 ? '' : 's');
         if ($inclSet && $catsCopied > 0) $parts[] = "$catsCopied categor" . ($catsCopied === 1 ? 'y' : 'ies');
+        if ($inclSet && $catsCleared > 0) $parts[] = "replaced $catsCleared unused default categor" . ($catsCleared === 1 ? 'y' : 'ies');
         $msg = implode(', ', $parts) . '.';
         /* nothing new landed but the grade setup was still applied */
         if ($inclSet && $copied === 0 && $catsCopied === 0) {
@@ -472,6 +501,7 @@ class ActivityController extends Controller
             'copied'   => $copied,
             'skipped'  => $skipped,
             'cats'     => $catsCopied,
+            'cleared'  => $catsCleared,
             'settings' => $inclSet ? 1 : 0,
             'message'  => $msg,
         ]);

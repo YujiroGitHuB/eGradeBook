@@ -9,6 +9,13 @@ use App\Core\ClassScope;
    Option B term-based grading. Scoped per class. */
 class CategoryRepo
 {
+    /* Ang default na hanay ng category na inihahasik sa UNANG pagbukas ng term
+       mode. Iisang pinagmulan ito ngayon: ginagamit ng seedDefaultsIfEmpty()
+       para maghasik AT ng clearUntouchedDefaults() para makilala ang mga
+       hindi pa nagagalaw na inihasik. Kung dalawang lugar ito, tahimik na
+       hindi na makikilala ang default matapos baguhin ang isa sa kanila. */
+    public const DEFAULTS = [['Quiz', 20], ['Activity', 30], ['Attendance', 10], ['Exam', 40]];
+
     private Database $db;
     private int $ownerId;
 
@@ -91,7 +98,7 @@ class CategoryRepo
         $sy  = $c->schoolYear;
         $sem = $c->semester;
         $sub = $c->subject;
-        $defaults = [['Quiz', 20], ['Activity', 30], ['Attendance', 10], ['Exam', 40]];
+        $defaults = self::DEFAULTS;
         $ins = $this->db->prepare("INSERT INTO grade_categories (owner_id, section, term, name, weight, sort_order, school_year, semester, subject) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
         foreach (['midterm', 'final'] as $tname) {
             $so = 0;
@@ -102,6 +109,74 @@ class CategoryRepo
             }
         }
         $ins->close();
+    }
+
+    /* Alisin ang mga default na category na inihasik ng seedDefaultsIfEmpty() at
+       HINDI PA nagagalaw — pareho pa rin ang pangalan AT timbang, at walang kahit
+       isang activity, form column o attendance na nakakabit sa kanila.
+
+       Kailangan ito ng "Copy from…". Kapag binuksan ang term mode BAGO mag-copy,
+       naunang naihasik ang 8 default; ang pagkopya naman ay MERGE lang —
+       nagdaragdag nang hindi bumubura. Kaya nagsasama ang inihasik at ang nakopya,
+       at dahil buo pa rin ang timbang ng WALANG LAMANG category sa termGrade()
+       (catPct = 0, pero dagdag pa rin sa totalW), tahimik na nababawasan ang term
+       grade ng lahat — walang error, mukhang normal ang sheet.
+
+       Ang term LANG na may dalang kapalit ang pinagmulan ang nililinis, kaya hindi
+       tayo maiiwang walang kahit isang category kapag wala namang ikokopya. Ang
+       nagalaw na (binagong pangalan o timbang, o may nakakabit nang column) ay
+       hindi ginagalaw — trabaho na iyon ng guro, hindi na inihasik lang. */
+    public function clearUntouchedDefaults(ClassScope $c, array $terms): int
+    {
+        if (!$terms) return 0;
+        $admin_id = $this->ownerId;
+        $sec = $c->section;
+        $sy  = $c->schoolYear;
+        $sem = $c->semester;
+        $sub = $c->subject;
+
+        /* kandidato: tugma ang pangalan AT timbang sa inihasik na default */
+        $cand = [];
+        $sel = $this->db->prepare("SELECT id, name, weight FROM grade_categories
+            WHERE owner_id=? AND section=? AND school_year=? AND semester=? AND subject=? AND term=?");
+        foreach ($terms as $term) {
+            $term = (string)$term;
+            $sel->bind_param('isssss', $admin_id, $sec, $sy, $sem, $sub, $term);
+            $sel->execute();
+            $rs = $sel->get_result();
+            while ($row = $rs->fetch_assoc()) {
+                $nm = mb_strtolower(trim((string)$row['name']));
+                $wt = (float)$row['weight'];
+                foreach (self::DEFAULTS as $d) {
+                    if ($nm === mb_strtolower($d[0]) && abs($wt - (float)$d[1]) < 0.005) {
+                        $cand[] = (int)$row['id'];
+                        break;
+                    }
+                }
+            }
+        }
+        $sel->close();
+        if (!$cand) return 0;
+
+        /* ...pero huwag ang may nakakabit nang column. Interpolated IN (...) dahil
+           hindi kayang i-bind ng mysqli ang listahan — int-cast ang bawat id, gaya
+           ng ginagawa ng SheetRepo. TATLO ang table na may category_id, hindi dalawa
+           (tingnan din ang deleteWithUnassign). */
+        $idList = implode(',', array_map('intval', $cand));
+        $used = [];
+        foreach (['grade_activities', 'grade_form_meta', 'grade_attendance_meta'] as $t) {
+            $q = $this->db->query("SELECT DISTINCT category_id FROM `$t`
+                WHERE owner_id=$admin_id AND category_id IN ($idList)");
+            if ($q) while ($u = $q->fetch_assoc()) $used[(int)$u['category_id']] = true;
+        }
+        $drop = array_values(array_filter($cand, fn($id) => !isset($used[$id])));
+        if (!$drop) return 0;
+
+        /* Walang nakaturo sa mga ito (kakasuri lang natin), kaya hindi na kailangan
+           ang deleteWithUnassign() — walang uunassign. */
+        $dropList = implode(',', array_map('intval', $drop));
+        $this->db->query("DELETE FROM grade_categories WHERE owner_id=$admin_id AND id IN ($dropList)");
+        return count($drop);
     }
 
     /* Kopyahin ang buong hanay ng category ng isang term papunta sa kabila

@@ -473,6 +473,7 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
                     </span>
                 </label>
                 <p class="bulk-note" style="margin:0;"><i class="bi bi-info-circle"></i> Activities with a name already in this section are skipped, so re-copying is safe.</p>
+                <p class="bulk-note" style="margin:.35rem 0 0;"><i class="bi bi-shield-check"></i> Unused starter categories (Quiz / Activity / Attendance / Exam, still at their default weights) are replaced by the copied ones. Any category you renamed, re-weighted, or already assigned a column to is kept &mdash; check the weight total afterwards. This section&rsquo;s own Midterm/Final setting is never changed.</p>
             </div>
             <div class="modal-actions" style="margin-top:1.4rem;">
                 <button class="btn btn-ghost" id="copyCancel">Cancel</button>
