@@ -666,8 +666,10 @@ async function loadSheet(section) {
     $('chkTermMode').checked = d.term_mode === true;
     $('btnGradeSetup').style.display = d.term_mode === true ? '' : 'none';
 
-    /* auto attendance column toggle */
+    /* auto attendance column toggle + ang petsang naghahati sa Midterm/Final */
     if ($('chkAttendance')) $('chkAttendance').checked = d.attendance_enabled === true;
+    if ($('attCutoff')) $('attCutoff').value = d.attendance_cutoff || '';
+    syncAttCutoffVisibility();
 
     render();
 }
@@ -901,13 +903,20 @@ function render() {
                 const cats = (SHEET.categories || []).filter(k => k.term === c.term);
                 const catOpts = `<option value="">cat?</option>` + cats.map(k =>
                     `<option value="${k.id}" ${k.id === c.category_id ? 'selected' : ''}>${escHtml(k.name)}</option>`).join('');
-                asub = `<span class="sub sub-term">
-                        <span class="tc-row">
-                            <select class="att-term-edit" data-key="${c.key}" data-tip="Term (Midterm / Final)">
+                /* Kapag hati ang attendance, ang "Midterm ends" na petsa ang
+                   nagtatakda ng term — teksto na lang ito, hindi dropdown, dahil
+                   ang pagpalit dito ay hindi maaayon sa mga session na binilang. */
+                const termCell = c.term_locked
+                    ? `<span class="att-term-fixed" data-tip="Set by the “Midterm ends” date — change it there">
+                           ${c.term === 'midterm' ? 'Midterm' : 'Final'}</span>`
+                    : `<select class="att-term-edit" data-key="${c.key}" data-tip="Term (Midterm / Final)">
                                 <option value="" ${!c.term ? 'selected' : ''}>term?</option>
                                 <option value="midterm" ${c.term === 'midterm' ? 'selected' : ''}>Midterm</option>
                                 <option value="final" ${c.term === 'final' ? 'selected' : ''}>Final</option>
-                            </select>
+                            </select>`;
+                asub = `<span class="sub sub-term">
+                        <span class="tc-row">
+                            ${termCell}
                             <select class="att-cat-edit" data-key="${c.key}" data-tip="Category">${catOpts}</select>
                         </span>
                         <span class="mx">max <b>${c.max || 0}</b> <span class="frm-ro" data-tip="Auto from QR attendance scans">sessions</span></span>
@@ -1625,17 +1634,24 @@ async function applyCopyFormVisibility() {
 }
 
 /* ── Save the attendance-column overlay (term / category / weight) ──
-   Mirrors onFormEdit, but keyed per section (one attendance column). */
+   Mirrors onFormEdit. Iisang hilera lang ang attendance overlay kada klase,
+   pero DALAWA ang column kapag hati sa Midterm/Final — kaya ipinapadala ang
+   `half` para malaman ng server kung aling hanay ang isusulat. */
 async function onAttendanceEdit(e) {
     const inp = e.target;
-    const col = SHEET.columns.find(c => c.key === 'att');
+    const key = inp.dataset.key || 'att';
+    const col = SHEET.columns.find(c => c.key === key);
     if (!col) return;
 
     const isTerm   = inp.classList.contains('att-term-edit');
     const isCat    = inp.classList.contains('att-cat-edit');
     const isWeight = inp.classList.contains('att-wt-edit');
 
-    const payload = { api: 'set_attendance_meta', section: SHEET.section };
+    const payload = {
+        api: 'set_attendance_meta',
+        section: SHEET.section,
+        half: key === 'attf' ? 'final' : 'midterm',
+    };
     if (isTerm) {
         payload.term = inp.value;
         payload.category_id = '';           // clear category when term changes
@@ -3843,6 +3859,40 @@ if ($('chkAttendance')) $('chkAttendance').addEventListener('change', async () =
         on ? 'Attendance column added (auto from QR scans). Set its weight or category in the header to include it in the grade.'
            : 'Attendance column removed.',
         on ? 'success' : 'info'
+    );
+});
+
+/* ── Hati ng attendance sa Midterm at Final ────────────────────────────
+   Ang "Midterm ends" ay may saysay lang kapag may Midterm/Final na grado
+   at may attendance column na hahatiin, kaya itinatago kung alinman sa
+   dalawa ay naka-off. */
+function syncAttCutoffVisibility() {
+    const wrap = $('attCutWrap');
+    if (!wrap) return;
+    const show = !!(SHEET && SHEET.attendance_enabled === true && SHEET.term_mode === true);
+    wrap.style.display = show ? '' : 'none';
+}
+
+if ($('attCutoff')) $('attCutoff').addEventListener('change', async () => {
+    if (!SHEET) return;
+    const inp = $('attCutoff');
+    const prev = SHEET.attendance_cutoff || '';
+    const val  = inp.value || '';
+    if (val === prev) return;
+
+    const d = await apiPost({ api: 'set_attendance_meta', section: SHEET.section, midterm_end: val });
+    if (!d.success) {
+        inp.value = prev;               // revert on failure
+        showToastSafe(d.message || 'Could not update.', 'error');
+        return;
+    }
+    /* Reload: nagbabago ang bilang ng session ng bawat kalahati, at
+       lumilitaw/nawawala ang pangalawang column. */
+    await loadSheet(SHEET.section);
+    showToastSafe(
+        val ? `Attendance split — sessions up to ${val} count toward Midterm, later ones toward Final. Assign a category to each half.`
+            : 'Attendance back to one column for the whole semester.',
+        val ? 'success' : 'info'
     );
 });
 $('btnGradeSetup').addEventListener('click', openSetupModal);

@@ -2479,3 +2479,26 @@ input.act-score.sync-on {
     border-top-color: transparent;
     border-bottom-color: var(--surface);
 }
+
+/* ── "Midterm ends" — ang petsang naghahati sa attendance ──────────────
+   Nakaupo sa hanay ng .gs-check na mga toggle, kaya kaparehong laki at
+   anyo; makitid lang ang date input para hindi nito itulak ang hilera. */
+.gs-attcut { gap: .4rem; }
+.gs-input-sm {
+    width: 9.5rem;
+    min-width: 0;
+    padding: .2rem .4rem;
+    font-size: .82rem;
+}
+/* Naka-lock na term ng hating attendance column — ipinapakita gaya ng
+   isang select para pantay ang hilera, pero teksto lang. */
+.att-term-fixed {
+    display: inline-block;
+    padding: .1rem .35rem;
+    border: 1px dashed var(--border);
+    border-radius: 5px;
+    font-size: .72rem;
+    color: var(--muted);
+    white-space: nowrap;
+    cursor: help;
+}

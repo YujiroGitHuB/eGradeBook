@@ -82,7 +82,7 @@ carries `hidden`), plus `set_form_subject` and `copy_form_visibility`.
 Column ordering is now **unified** across activities + forms + the attendance
 column (all carry `sort_order`; the `reorder_columns` API and the `sheet`
 action's `uasort` keep them on one scale — `reorder_columns` special-cases the
-`att` key before its numeric-id parse). Grade math includes forms **and
+`att` / `attf` keys before its numeric-id parse). Grade math includes forms **and
 attendance**: `termGrade` and the weighted branch of `courseworkGrade` in
 `grades.js` filter on `type === 'activity' || type === 'form' || type === 'attendance'`.
 
@@ -99,6 +99,35 @@ joins weighted/term grading exactly like a form column. Keyed `(owner_id,
 section)` — plus `school_year, semester, subject` since class scoping (below).
 Toggled by the `Attendance` checkbox → `set_attendance_enabled`; overlay edited
 via `set_attendance_meta`.
+
+**The Midterm/Final split (`midterm_end`).** One attendance column with one
+`term` meant that in term mode the teacher had to pick *either* Midterm or
+Final — and worse, the session count had **no date filter at all**, so a column
+assigned to Midterm still counted scans taken during the Finals period, and the
+Midterm grade kept drifting until the semester ended. `attendance_tbl` carries
+no term/period column to filter on, so the only available signal is the date,
+and the teacher supplies it: `grade_attendance_meta.midterm_end` (the "Midterm
+ends" date beside the Attendance checkbox). When it is set **and term mode is
+on**, `SheetRepo::build()` emits **two** columns instead of one — `att`
+"Attendance (Midterm)" (`date <= midterm_end`) and `attf` "Attendance (Final)"
+(`date > midterm_end`) — with fixed terms, so their `term` is rendered as text
+rather than a dropdown (`term_locked` on the column, `.att-term-fixed` in
+`grades.js`). Blank date, or term mode off, means one column covering every
+session: **the exact previous behaviour**, which is why nothing changes for
+existing sheets. Note the cutoff is **inclusive** — a session on `midterm_end`
+itself counts toward Midterm.
+
+Still **one row per class**: the old `category_id` / `weight` / `sort_order`
+serve the Midterm half and new `final_category_id` / `final_weight` /
+`final_sort_order` serve the Final half, so `set_attendance_meta` takes a
+`half` param (`midterm` | `final`) that `AttendanceRepo::columnFor()` maps
+through a **whitelist** — the value reaches SQL as a column name, which cannot
+be bound. `midterm_end` goes through a strict `Y-m-d` round-trip check in
+`AttendanceController` for the same reason. `reorder_columns` special-cases
+`attf` alongside `att`, writing `final_sort_order` instead, so the two halves
+drag independently on the single shared ordering scale. The legacy `term`
+column is ignored while split (the date decides) and comes back into play the
+moment the cutoff is cleared.
 - `bcc_qr_attendance_db` (`ATTENDANCE_DB`) — the **student roster** (`students_tbl`: sections, names, courses) and the **attendance scans** (`attendance_tbl`, read only when the attendance column is enabled).
 
 All three constants live in `inc/db.php`. This design breaks if the databases

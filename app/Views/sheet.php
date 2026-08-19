@@ -230,6 +230,17 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
                         <input type="checkbox" id="chkAttendance">
                         Attendance
                     </label>
+                    <!-- Hati ng attendance sa Midterm at Final. Walang term column
+                         ang QR scans, kaya ang petsang ito lang ang batayan kung
+                         alin ang Midterm. Blangko = iisang column para sa buong
+                         semestre (dating gawi). Lumalabas lang kapag naka-on ang
+                         Attendance AT ang Term grading — walang hahatiin kung
+                         walang Midterm/Final. -->
+                    <label class="gs-check gs-attcut" id="attCutWrap" style="display:none;"
+                           title="Last day of the Midterm. The Attendance column splits in two — sessions up to this date count toward Midterm, later ones toward Final. Leave blank for one column covering the whole semester.">
+                        Midterm ends
+                        <input type="date" id="attCutoff" class="gs-input gs-input-sm">
+                    </label>
                     <button class="btn btn-ghost btn-sm" id="btnGradeSetup" style="display:none;"><i class="bi bi-sliders"></i> Grade setup</button>
                 </div>
             </div>

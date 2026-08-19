@@ -182,6 +182,10 @@ class Schema
             category_id INT DEFAULT NULL,
             weight      DECIMAL(6,2) NOT NULL DEFAULT 0,
             sort_order  INT NOT NULL DEFAULT 0,
+            midterm_end       DATE DEFAULT NULL,
+            final_category_id INT DEFAULT NULL,
+            final_weight      DECIMAL(6,2) NOT NULL DEFAULT 0,
+            final_sort_order  INT NOT NULL DEFAULT 0,
             PRIMARY KEY (owner_id, section)
         )");
 
@@ -268,6 +272,36 @@ class Schema
            Default 0 = nakikita, kaya WALANG nagbabago sa mga dati nang sheet. */
         if (!$db->colExists('grade_form_meta', 'hidden')) {
             $conn->query("ALTER TABLE grade_form_meta ADD COLUMN hidden TINYINT(1) NOT NULL DEFAULT 0");
+        }
+
+        /* HATI NG ATTENDANCE SA MIDTERM AT FINAL.
+           Isang auto attendance column lang dati kada klase, at ISA lang ang
+           `term` nito — kaya kapag naka-term mode, kailangang pumili ang guro:
+           Midterm O Final, hindi pwedeng pareho. Mas malala: walang date filter
+           ang bilang ng sessions (COUNT(DISTINCT `date`) ng buong section), kaya
+           kahit itakda mo sa Midterm, kasama pa rin ang mga iskan sa panahon ng
+           Finals — patuloy na nagbabago ang Midterm grade hanggang katapusan ng
+           semestre. Walang term/period column ang attendance_tbl na masasandalan,
+           kaya ang guro ang magsasabi kung kailan natapos ang Midterm:
+             • `midterm_end` — huling araw ng Midterm. NULL/blangko = WALANG hati,
+               kaya hindi nagbabago ang gawi ng lahat ng dati nang sheet.
+             • `final_*` — hiwalay na overlay (category/weight/order) para sa
+               kalahating Final; ang lumang `category_id`/`weight`/`sort_order`
+               ang sa Midterm. Fixed na ang `term` ng dalawang column kapag hati
+               (midterm/final), kaya walang bagong `term` column dito.
+           Hati lang kapag naka-term mode — walang saysay ang dalawang column
+           kung walang Midterm/Final na gradong binubuo. */
+        if (!$db->colExists('grade_attendance_meta', 'midterm_end')) {
+            $conn->query("ALTER TABLE grade_attendance_meta ADD COLUMN midterm_end DATE DEFAULT NULL");
+        }
+        if (!$db->colExists('grade_attendance_meta', 'final_category_id')) {
+            $conn->query("ALTER TABLE grade_attendance_meta ADD COLUMN final_category_id INT DEFAULT NULL");
+        }
+        if (!$db->colExists('grade_attendance_meta', 'final_weight')) {
+            $conn->query("ALTER TABLE grade_attendance_meta ADD COLUMN final_weight DECIMAL(6,2) NOT NULL DEFAULT 0");
+        }
+        if (!$db->colExists('grade_attendance_meta', 'final_sort_order')) {
+            $conn->query("ALTER TABLE grade_attendance_meta ADD COLUMN final_sort_order INT NOT NULL DEFAULT 0");
         }
 
         /* Pag-aangkin ng isang form sa ISANG subject — minsanan lang, pang-habambuhay.

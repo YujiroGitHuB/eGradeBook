@@ -16,7 +16,8 @@ use App\Core\ClassScope;
    status overrides. This is the one read that necessarily spans all
    three bridged databases, so the cross-DB SQL is kept here intact.
    Each column has a unique `key`: forms='f'+id, activities='a'+id,
-   attendance='att'.
+   attendance='att' — plus 'attf' para sa kalahating Final kapag hati ang
+   attendance sa Midterm/Final (tingnan ang `midterm_end`).
    ============================================================ */
 class SheetRepo
 {
@@ -250,7 +251,13 @@ class SheetRepo
            distinct session dates. Read-only score; the overlay (term /
            category / weight / order) makes it behave like a form column.
            Section-scoped like the roster query — see the note below. */
+        /* per-class setting: term_mode + use_defense. Binabasa BAGO ang
+           attendance block dahil ang term_mode ang nagsasabi kung dapat
+           bang hatiin ang attendance sa Midterm at Final. */
+        $settings = (new SettingsRepo($this->db, $this->ownerId))->forSheet($c);
+
         $attEnabled = false;
+        $attCutoff  = '';
         $attMeta = (new AttendanceRepo($this->db, $this->ownerId))->metaForSheet($c);
         if ($attMeta && (int)$attMeta['enabled'] === 1) {
             $attEnabled = true;
@@ -259,49 +266,86 @@ class SheetRepo
                (attendance_tbl records `subject`); the legacy class (subject='')
                pools all subjects like before. */
             $attSubjFilter = ($subj !== '') ? " AND subject='" . $conn->real_escape_string($subj) . "'" : '';
-            $totalSessions = 0;
-            $sq = $conn->query("SELECT COUNT(DISTINCT `date`) c FROM " . ATTENDANCE_DB . ".attendance_tbl WHERE section='$section_esc'$attSubjFilter");
-            if ($sq && ($sx = $sq->fetch_assoc())) $totalSessions = (int)$sx['c'];
 
-            /* present (distinct dates) per rostered student */
-            $present = [];
-            if ($noList) {
-                $pq = $conn->query(
-                    "SELECT student_no, COUNT(DISTINCT `date`) c FROM " . ATTENDANCE_DB . ".attendance_tbl
-                     WHERE section='$section_esc'$attSubjFilter AND student_no IN ($noList) GROUP BY student_no"
-                );
-                if ($pq) while ($pr = $pq->fetch_assoc()) $present[(string)$pr['student_no']] = (int)$pr['c'];
-            }
+            /* HATI SA MIDTERM/FINAL. Walang term/period column ang
+               attendance_tbl na masasandalan, kaya ang petsa lang ang batayan:
+               `midterm_end` ang huling araw ng Midterm, itinatakda ng guro.
+               Hati LAMANG kapag naka-term mode at may petsa — kung wala, iisang
+               column na bumibilang ng lahat ng session: ang dating gawi nang
+               eksakto, kaya walang nagbabago sa mga umiiral nang sheet. */
+            $attCutoff = trim((string)($attMeta['midterm_end'] ?? ''));
+            $split  = ((int)$settings['term_mode'] === 1 && $attCutoff !== '');
+            $cutEsc = $conn->real_escape_string($attCutoff);
 
-            $columns['att'] = [
-                'key'         => 'att',
-                'type'        => 'attendance',
-                'id'          => 0,
-                'title'       => 'Attendance',
-                'max'         => $totalSessions,
-                'weight'      => (float)$attMeta['weight'],
-                'term'        => $attMeta['term'],
-                'category_id' => $attMeta['category_id'] !== null ? (int)$attMeta['category_id'] : null,
-                'sort_order'  => (int)$attMeta['sort_order'],
-                'responded'   => 0,
-            ];
-            /* every rostered student gets a value (absent = 0), so
-               attendance counts as 0 — not "ungraded" — the whole point
-               of an attendance grade. Skipped when there are no sessions
-               yet so an empty attendance column can't zero everyone out. */
-            if ($totalSessions > 0) {
-                foreach ($students as $stu) {
-                    $sno = (string)$stu['student_no'];
-                    $p   = $present[$sno] ?? 0;
-                    $scores[$sno]['att'] = [
-                        'score'   => $p,
-                        'raw'     => $p,
-                        'penalty' => 0,
-                        'max'     => $totalSessions,
-                        'at'      => null,
-                    ];
-                    if ($p > 0) $columns['att']['responded']++;
+            /* Isang attendance column: bilangin ang mga session (at ang dalo ng
+               bawat estudyante) sa loob ng ibinigay na saklaw ng petsa. */
+            $buildAtt = function (string $key, string $title, string $dateFilter, string $term,
+                                  $catId, float $weight, int $sortOrder, bool $termLocked)
+                        use ($conn, $section_esc, $attSubjFilter, $noList, $students, &$columns, &$scores) {
+                $totalSessions = 0;
+                $sq = $conn->query("SELECT COUNT(DISTINCT `date`) c FROM " . ATTENDANCE_DB . ".attendance_tbl
+                    WHERE section='$section_esc'$attSubjFilter$dateFilter");
+                if ($sq && ($sx = $sq->fetch_assoc())) $totalSessions = (int)$sx['c'];
+
+                /* present (distinct dates) per rostered student */
+                $present = [];
+                if ($noList) {
+                    $pq = $conn->query(
+                        "SELECT student_no, COUNT(DISTINCT `date`) c FROM " . ATTENDANCE_DB . ".attendance_tbl
+                         WHERE section='$section_esc'$attSubjFilter$dateFilter AND student_no IN ($noList) GROUP BY student_no"
+                    );
+                    if ($pq) while ($pr = $pq->fetch_assoc()) $present[(string)$pr['student_no']] = (int)$pr['c'];
                 }
+
+                $columns[$key] = [
+                    'key'         => $key,
+                    'type'        => 'attendance',
+                    'id'          => 0,
+                    'title'       => $title,
+                    'max'         => $totalSessions,
+                    'weight'      => $weight,
+                    'term'        => $term,
+                    'category_id' => $catId !== null ? (int)$catId : null,
+                    'sort_order'  => $sortOrder,
+                    'responded'   => 0,
+                    /* Kapag hati, ang PETSA ang nagtatakda ng term — hindi
+                       dropdown; ipinapakita na lang itong teksto ng grades.js. */
+                    'term_locked' => $termLocked,
+                ];
+                /* every rostered student gets a value (absent = 0), so
+                   attendance counts as 0 — not "ungraded" — the whole point
+                   of an attendance grade. Skipped when there are no sessions
+                   yet so an empty attendance column can't zero everyone out. */
+                if ($totalSessions > 0) {
+                    foreach ($students as $stu) {
+                        $sno = (string)$stu['student_no'];
+                        $p   = $present[$sno] ?? 0;
+                        $scores[$sno][$key] = [
+                            'score'   => $p,
+                            'raw'     => $p,
+                            'penalty' => 0,
+                            'max'     => $totalSessions,
+                            'at'      => null,
+                        ];
+                        if ($p > 0) $columns[$key]['responded']++;
+                    }
+                }
+            };
+
+            if ($split) {
+                /* `att` = Midterm (hanggang cutoff), `attf` = Final (pagkatapos
+                   nito). Fixed ang term ng dalawa, kaya hindi ginagamit ang
+                   lumang `term` column habang hati. */
+                $buildAtt('att',  'Attendance (Midterm)', " AND `date` <= '$cutEsc'", 'midterm',
+                          $attMeta['category_id'], (float)$attMeta['weight'],
+                          (int)$attMeta['sort_order'], true);
+                $buildAtt('attf', 'Attendance (Final)',   " AND `date` > '$cutEsc'",  'final',
+                          $attMeta['final_category_id'], (float)$attMeta['final_weight'],
+                          (int)$attMeta['final_sort_order'], true);
+            } else {
+                $buildAtt('att', 'Attendance', '', (string)$attMeta['term'],
+                          $attMeta['category_id'], (float)$attMeta['weight'],
+                          (int)$attMeta['sort_order'], false);
             }
         }
 
@@ -351,9 +395,6 @@ class SheetRepo
            (global; used by BOTH flat Final grade and term Equivalent) */
         $sheetEquiv = (new TransmuteRepo($this->db, $this->ownerId))->load();
 
-        /* per-class setting: term_mode + use_defense */
-        $settings = (new SettingsRepo($this->db, $this->ownerId))->forSheet($c);
-
         /* categories (for term-based grading) */
         $categories = (new CategoryRepo($this->db, $this->ownerId))->forSheet($c);
 
@@ -372,6 +413,8 @@ class SheetRepo
             'categories'  => $categories,
             'statuses'    => $statuses,
             'attendance_enabled' => $attEnabled,
+            /* Huling araw ng Midterm; blangko = hindi hati ang attendance. */
+            'attendance_cutoff'  => $attCutoff,
             /* Mga form ng section na itinago sa KLASENG ito (hindi columns).
                Ipinapasa para maipakita ng UI ang "Hidden forms" at maibalik. */
             'hidden_forms' => $hiddenForms,

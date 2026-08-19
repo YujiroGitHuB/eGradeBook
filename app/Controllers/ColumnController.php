@@ -16,7 +16,9 @@ class ColumnController extends Controller
        grade_activities (by id); forms to grade_form_meta and attendance to
        grade_attendance_meta (both keyed per class, so the upserts carry the
        full scope). One shared position counter keeps every table on a single
-       ordering scale. `att` is special-cased before the numeric-id parse. */
+       ordering scale. `att` / `attf` are special-cased before the numeric-id
+       parse — walang id ang mga ito at nasa iisang hilera lang sila, kaya
+       magkaibang hanay (`sort_order` / `final_sort_order`) ang tinatamaan. */
     public function reorder(): void
     {
         $conn     = $this->db->conn;
@@ -42,14 +44,21 @@ class ColumnController extends Controller
             "INSERT INTO grade_attendance_meta (owner_id, section, school_year, semester, subject, sort_order) VALUES (?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE sort_order = VALUES(sort_order)"
         );
+        /* Kalahating Final ng hating attendance — kaparehong hilera, ibang hanay. */
+        $uAttF = $conn->prepare(
+            "INSERT INTO grade_attendance_meta (owner_id, section, school_year, semester, subject, final_sort_order) VALUES (?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE final_sort_order = VALUES(final_sort_order)"
+        );
         $pos = 1;
         foreach ($order as $ck) {
             $ck = (string)$ck;
-            /* attendance column ("att") — the single auto column, checked
-               first because its key starts with 'a' but has no numeric id */
-            if ($ck === 'att') {
-                $uAtt->bind_param('issssi', $admin_id, $section, $sy, $sem, $subj, $pos);
-                $uAtt->execute();
+            /* attendance columns ("att" = Midterm/buo, "attf" = Final) — auto
+               columns, checked first because their keys start with 'a' but
+               have no numeric id */
+            if ($ck === 'att' || $ck === 'attf') {
+                $st = ($ck === 'attf') ? $uAttF : $uAtt;
+                $st->bind_param('issssi', $admin_id, $section, $sy, $sem, $subj, $pos);
+                $st->execute();
                 $pos++;
                 continue;
             }
@@ -70,6 +79,7 @@ class ColumnController extends Controller
         $uAct->close();
         $uFrm->close();
         $uAtt->close();
+        $uAttF->close();
         $this->ok();
     }
 
