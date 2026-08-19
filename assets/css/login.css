@@ -437,25 +437,118 @@ table.matrix {
     line-height: 1.55;
 }
 
-.error-banner {
+/* ─── Dynamic island (ang alert ng login) ─────────────────────────
+   Kapsulang lumulutang sa itaas-gitna: lumalabas bilang maliit na pill,
+   lumalawak sa sukat ng mensahe, tapos umuurong at naglalaho. Ang
+   `--iw` / `--ih` ay itinatakda ng JS mula sa sinukat na laki ng nilalaman
+   — hindi puwedeng i-transition ang `auto`, kaya kailangang piksel.
+
+   ITIM ito sa DALAWANG tema, gaya ng island sa telepono: iisang bagay ito
+   na lumulutang sa ibabaw ng pahina, hindi bahagi ng alinmang panel — at
+   nakapatong nga ito sa tahi ng madilim na slab at ng maliwanag na side.
+   Kaya may sariling matigas na kulay ito at hindi sumusunod sa tema. */
+.island {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    z-index: 900;
+
+    /* Sarado: maliit na pill (hindi bilog) — kagaya ng island na
+       naghihintay. Pinapalitan ng JS ang dalawang ito ng sinukat na laki. */
+    width: var(--iw, 56px);
+    height: var(--ih, 36px);
+    max-width: min(92vw, 27rem);
+
     display: flex;
-    align-items: flex-start;
-    gap: .55rem;
-    margin-top: 1.2rem;
-    padding: .7rem .8rem;
-    font-size: .82rem;
-    line-height: 1.5;
-    color: var(--text);
-    background: rgba(239, 68, 68, .09);
-    border: 1px solid rgba(239, 68, 68, .3);
-    border-left: 3px solid var(--danger);
-    border-radius: var(--radius-sm);
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    overflow: hidden;
+
+    padding: .6rem 1.05rem;
+    border-radius: 999px;
+    background: #05060a;
+    border: 1px solid rgba(255, 255, 255, .1);
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, .55),
+        0 0 0 1px rgba(0, 0, 0, .35);
+    color: #f2f4f9;
+    cursor: pointer;
+
+    opacity: 0;
+    transform: translate(-50%, -18px) scale(.86);
+    pointer-events: none;
+
+    transition:
+        width .52s cubic-bezier(.32, .72, 0, 1),
+        height .52s cubic-bezier(.32, .72, 0, 1),
+        opacity .28s ease,
+        transform .52s cubic-bezier(.32, .72, 0, 1);
 }
 
-.error-banner i {
-    color: var(--danger);
-    margin-top: .1rem;
+.island.is-open {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+    pointer-events: auto;
+}
+
+/* Habang sinusukat: walang animasyon at hindi nakikita, pero may laki
+   pa rin — doon kinukuha ng JS ang tunay na sukat ng nilalaman.
+
+   MAHALAGA ang `transform: none`. Ang island ay naka-scale(.86) habang
+   sarado, at IPINAPAKITA ng getBoundingClientRect() ang sukat MATAPOS ang
+   transform — kaya 14% na masyadong makitid ang nasusukat at naputol ang
+   dulo ng mensahe. Gumagamit na rin ang JS ng offsetWidth/offsetHeight,
+   na hindi apektado ng transform; dalawang belt ito para sa iisang sinturon. */
+.island.is-measuring {
+    transition: none;
+    visibility: hidden;
+    transform: none;
+}
+
+.island-in {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    white-space: nowrap;
+    font-size: .82rem;
+    line-height: 1.35;
+    opacity: 0;
+    transition: opacity .2s ease;
+}
+
+.island.is-open .island-in {
+    opacity: 1;
+    transition-delay: .14s;
+}
+
+.island-dot {
     flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--danger);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, .2);
+}
+
+.island i {
+    flex: none;
+    color: #ff6b6b;
+    font-size: .95rem;
+}
+
+/* Mahabang mensahe: hayaang bumalot at lumaki ang taas — kagaya rin ng
+   island na nag-a-adjust sa laman nito. */
+@media (max-width: 520px) {
+    .island-in {
+        white-space: normal;
+    }
+
+    .island {
+        top: 10px;
+        border-radius: 20px;
+        padding: 0 .85rem;
+    }
 }
 
 form {
@@ -681,6 +774,11 @@ form {
     .fill,
     .login-card {
         animation: none;
+    }
+
+    /* Walang paglawak — sumusulpot na lang ito sa buong sukat. */
+    .island {
+        transform: translate(-50%, 0);
     }
 
     * {

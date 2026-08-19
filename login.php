@@ -167,13 +167,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <p>Sign in with your FormFlow username and password.</p>
         </div>
 
-        <?php if ($error): ?>
-          <div class="error-banner">
-            <i class="bi bi-exclamation-circle-fill"></i>
-            <span><?= htmlspecialchars($error) ?></span>
-          </div>
-        <?php endif; ?>
-
         <form method="POST" autocomplete="on">
           <input type="hidden" name="next" value="<?= htmlspecialchars($next) ?>">
 
@@ -231,6 +224,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   </div>
 
+  <?php if ($error): ?>
+    <!-- ── DYNAMIC ISLAND ─────────────────────────────────────────────
+         Ang alert ng login. Ipinapalabas sa server (hindi ginagawa ng JS)
+         para may nakikita pa rin kahit patay ang JavaScript — iyon ang
+         ginagawa ng <noscript> sa ibaba. Ang JS ay pang-animasyon lang:
+         maliit na kapsula → lumawak → umurong. -->
+    <div class="island" id="island" role="alert" aria-live="assertive" tabindex="0" title="Dismiss">
+      <span class="island-in">
+        <i class="bi bi-exclamation-circle-fill"></i>
+        <span><?= htmlspecialchars($error) ?></span>
+      </span>
+    </div>
+    <noscript>
+      <style>
+        .island {
+          opacity: 1;
+          transform: translate(-50%, 0);
+          width: auto;
+          height: auto;
+          padding: .6rem 1rem;
+        }
+
+        .island-in {
+          opacity: 1;
+        }
+      </style>
+    </noscript>
+  <?php endif; ?>
+
   <script>
     /* ── Password visibility toggle ── */
     function togglePass() {
@@ -266,6 +288,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         localStorage.setItem(STORAGE_KEY, next);
         applyTheme(next);
       };
+    })();
+
+    /* ── Dynamic island ────────────────────────────────────────────
+       Hindi puwedeng i-transition ang `width: auto`, kaya sinusukat muna
+       ang tunay na laki ng nilalaman habang naka-`is-measuring` (walang
+       animasyon, hindi nakikita), tapos saka ito itinatakda sa piksel.
+       Sinusukat ulit kapag nagbago ang lapad ng bintana — nagbabago ang
+       balot ng mahabang mensahe sa telepono. */
+    (function() {
+      const el = document.getElementById('island');
+      if (!el) return;
+
+      const COLLAPSED_W = 56, COLLAPSED_H = 36;
+      let hideTimer = null;
+
+      function measure() {
+        el.classList.add('is-measuring');
+        el.style.setProperty('--iw', 'auto');
+        el.style.setProperty('--ih', 'auto');
+        /* offsetWidth/Height, HINDI getBoundingClientRect: ang huli ay
+           may kasamang transform (naka-scale(.86) ang saradong island),
+           kaya pinuputol nito ang dulo ng mensahe. */
+        const w = el.offsetWidth, h = el.offsetHeight;
+        el.style.removeProperty('--iw');
+        el.style.removeProperty('--ih');
+        el.classList.remove('is-measuring');
+        return { w: w, h: h };
+      }
+
+      function open() {
+        const size = measure();
+        void el.offsetWidth;                 // isang reflow: simulan sa kapsula
+        requestAnimationFrame(() => {
+          el.style.setProperty('--iw', size.w + 'px');
+          el.style.setProperty('--ih', size.h + 'px');
+          el.classList.add('is-open');
+        });
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(close, 6000);
+      }
+
+      function close() {
+        clearTimeout(hideTimer);
+        el.style.setProperty('--iw', COLLAPSED_W + 'px');
+        el.style.setProperty('--ih', COLLAPSED_H + 'px');
+        el.classList.remove('is-open');
+      }
+
+      el.addEventListener('click', close);
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+          e.preventDefault();
+          close();
+        }
+      });
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') close();
+      });
+      /* Bagong sukat kapag nag-resize — pero huwag buksan ulit kung
+         sarado na. */
+      window.addEventListener('resize', () => {
+        if (el.classList.contains('is-open')) {
+          const size = measure();
+          el.style.setProperty('--iw', size.w + 'px');
+          el.style.setProperty('--ih', size.h + 'px');
+        }
+      });
+
+      /* Hintaying handa ang webfont bago sumukat — kung hindi, sa lapad
+         ng fallback na font nakabatay ang kapsula at pumuputol ang teksto. */
+      const start = () => open();
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(start);
+      } else {
+        window.addEventListener('load', start);
+      }
     })();
   </script>
   <script src="assets/js/detection.js?v=<?= filemtime('assets/js/detection.js') ?>"></script>
