@@ -52,92 +52,182 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/login.css?v=<?= filemtime('assets/css/login.css') ?>">
 </head>
 
 <body>
-  <div class="login-wrap">
+  <div class="shell">
 
-    <div class="brand">
-      <img src="assets/images/logo.png" width="70px" height="70px" alt="eGradeBook">
-      <div class="brand-name">eGradeBook</div>
-      <div class="brand-tagline">Uses your FormFlow account</div>
-    </div>
+    <!-- ══ KALIWA — ang produkto mismo ════════════════════════════════
+         Hindi abstract na dekorasyon: isang piraso ng grading matrix,
+         napupunan pagbukas ng pahina kagaya ng totoong sheet. HALIMBAWANG
+         datos ito (kaya may "Sample sheet" na pill) — walang binabasang
+         tunay na marka ang login page, wala pa ngang sesyon dito. -->
+    <section class="slab">
 
-    <div class="theme-row">
-      <button class="theme-toggle" title="Toggle theme" onclick="toggleTheme()">
-        <i class="bi bi-sun-fill"></i>
-      </button>
-    </div>
-
-    <div class="login-card">
-      <div class="card-head">
-        <h2>Welcome back</h2>
-        <p>Sign in with your FormFlow username and password.</p>
+      <div class="lockup">
+        <img src="assets/images/logo.png" alt="" width="38" height="38">
+        <span class="wordmark">e<em>Grade</em>Book</span>
       </div>
 
-      <?php if ($error): ?>
-        <div class="error-banner">
-          <i class="bi bi-exclamation-circle-fill"></i>
-          <?= htmlspecialchars($error) ?>
-        </div>
-      <?php endif; ?>
+      <div>
+        <h1 class="lede">One sheet, from roster to final grade.</h1>
+        <p class="lede-sub">
+          Your section loads with its students already in it. Quizzes, form
+          columns and QR attendance land in the same matrix, and the transmuted
+          1.00–5.00 point follows every score you type.
+        </p>
+      </div>
 
-      <form method="POST" autocomplete="on">
-        <input type="hidden" name="next" value="<?= htmlspecialchars($next) ?>">
-
-        <div class="field">
-          <label>Username</label>
-          <div class="field-wrap">
-            <i class="bi bi-person fi"></i>
-            <input
-              type="text"
-              name="username"
-              placeholder="Enter your username"
-              value="<?= htmlspecialchars($_POST['username'] ?? '') ?>"
-              autocomplete="username"
-              required
-              autofocus>
-          </div>
+      <div class="sheet">
+        <div class="sheet-bar">
+          <span class="sheet-ctx">BSIT-1A · Computer Programming 2</span>
+          <span class="pill pill-term">Midterm</span>
+          <span class="pill">Sample sheet</span>
         </div>
 
-        <div class="field">
-          <label>Password</label>
-          <div class="field-wrap">
-            <i class="bi bi-lock fi"></i>
-            <input
-              type="password"
-              name="password"
-              id="passInput"
-              placeholder="Enter your password"
-              autocomplete="current-password"
-              required>
-            <button type="button" class="toggle-pass" onclick="togglePass()" title="Show/hide password">
-              <i class="bi bi-eye" id="eyeIcon"></i>
-            </button>
-          </div>
+        <div class="sheet-scroll">
+          <table class="matrix">
+            <thead>
+              <tr>
+                <th class="who">Student</th>
+                <th>Quiz 1<span class="of">/ 20</span></th>
+                <th>Activity 2<span class="of">/ 30</span></th>
+                <th>Exam<span class="of">/ 50</span></th>
+                <th>Attendance<span class="of">/ 12 sessions</span></th>
+                <th>Equivalent</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="who"><b>Bautista, Marianne</b><span class="sno">025-217</span></td>
+                <td class="mark fill" style="--d:.10s">20</td>
+                <td class="mark fill" style="--d:.16s">29</td>
+                <td class="mark fill" style="--d:.22s">47</td>
+                <td class="mark fill" style="--d:.28s">12</td>
+                <td><span class="eq fill" style="--d:.60s">1.25</span></td>
+              </tr>
+              <tr>
+                <td class="who"><b>Abellera, Jonas</b><span class="sno">025-104</span></td>
+                <td class="mark fill" style="--d:.14s">18</td>
+                <td class="mark fill" style="--d:.20s">27</td>
+                <td class="mark fill" style="--d:.26s">42</td>
+                <td class="mark fill" style="--d:.32s">11</td>
+                <td><span class="eq fill" style="--d:.66s">1.75</span></td>
+              </tr>
+              <tr>
+                <td class="who"><b>Gutierrez, Aira</b><span class="sno">025-451</span></td>
+                <td class="mark fill" style="--d:.18s">17</td>
+                <td class="mark fill" style="--d:.24s">25</td>
+                <td class="mark fill" style="--d:.30s">40</td>
+                <td class="mark fill" style="--d:.36s">10</td>
+                <td><span class="eq fill" style="--d:.72s">2.00</span></td>
+              </tr>
+              <tr>
+                <td class="who"><b>Dela Cruz, Rio</b><span class="sno">025-338</span></td>
+                <td class="mark fill" style="--d:.22s">14</td>
+                <td class="mark fill" style="--d:.28s">22</td>
+                <td class="mark fill" style="--d:.34s">33</td>
+                <td class="mark fill" style="--d:.40s">9</td>
+                <td><span class="eq edge fill" style="--d:.78s">2.50</span></td>
+              </tr>
+              <tr>
+                <td class="who"><b>Ocampo, Lester</b><span class="sno">025-612</span></td>
+                <td class="mark fill" style="--d:.26s"><s>—</s></td>
+                <td class="mark fill" style="--d:.32s"><s>—</s></td>
+                <td class="mark fill" style="--d:.38s"><s>—</s></td>
+                <td class="mark fill" style="--d:.44s">4</td>
+                <td><span class="eq drp fill" style="--d:.84s">DRP</span></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
-        <button type="submit" class="btn-login">
-          <i class="bi bi-box-arrow-in-right"></i> Sign In
+        <p class="sheet-foot">
+          <i class="bi bi-calendar-check"></i>
+          Attendance counts itself from the QR scans — present ÷ sessions. Set a
+          Midterm end date and it splits across both terms.
+        </p>
+      </div>
+    </section>
+
+    <!-- ══ KANAN — sign in ═══════════════════════════════════════════ -->
+    <section class="side">
+
+      <div class="side-top">
+        <button class="theme-toggle" type="button" title="Toggle theme" aria-label="Toggle theme" onclick="toggleTheme()">
+          <i class="bi bi-sun-fill"></i>
         </button>
-      </form>
+      </div>
 
-    </div>
-    <!-- ── POWERED BY FOOTER ─────────────────────────────────── -->
-    <div style="text-align:center;padding:1.5rem 1rem 2rem;
-            font-size:.75rem;color:var(--muted);
-            display:flex;flex-direction:column;align-items:center;gap:4px;">
-      <div style="display:flex;align-items:center;gap:6px;">
-        <i class="bi bi-lightning-charge-fill" style="color:var(--accent);font-size:.8rem;"></i>
-        Powered by <strong style="color:var(--text);">eGradeBook</strong>
+      <div class="login-card">
+        <div class="card-head">
+          <h2>Welcome back</h2>
+          <p>Sign in with your FormFlow username and password.</p>
+        </div>
+
+        <?php if ($error): ?>
+          <div class="error-banner">
+            <i class="bi bi-exclamation-circle-fill"></i>
+            <span><?= htmlspecialchars($error) ?></span>
+          </div>
+        <?php endif; ?>
+
+        <form method="POST" autocomplete="on">
+          <input type="hidden" name="next" value="<?= htmlspecialchars($next) ?>">
+
+          <div class="field">
+            <label for="userInput">Username</label>
+            <div class="field-wrap">
+              <i class="bi bi-person fi"></i>
+              <input
+                type="text"
+                id="userInput"
+                name="username"
+                placeholder="Enter your username"
+                value="<?= htmlspecialchars($_POST['username'] ?? '') ?>"
+                autocomplete="username"
+                required
+                autofocus>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="passInput">Password</label>
+            <div class="field-wrap">
+              <i class="bi bi-lock fi"></i>
+              <input
+                type="password"
+                name="password"
+                id="passInput"
+                placeholder="Enter your password"
+                autocomplete="current-password"
+                required>
+              <button type="button" class="toggle-pass" onclick="togglePass()" title="Show/hide password" aria-label="Show or hide password">
+                <i class="bi bi-eye" id="eyeIcon"></i>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-login">
+            Sign In <i class="bi bi-arrow-right"></i>
+          </button>
+        </form>
+
+        <p class="bridge-note">
+          eGradeBook has no separate account. It signs you in against
+          <strong>FormFlow</strong>, so a password changed there works here on
+          the next try — and your gradebook stays yours alone.
+        </p>
       </div>
-      <div style="display:flex;align-items:center;gap:5px;opacity:.6;">
-        <i class="bi bi-code-slash" style="font-size:.8rem;"></i>
-        Developed by <strong style="color:var(--text);">Charles Nixon Cayading</strong>
+
+      <!-- ── POWERED BY FOOTER ─────────────────────────────────── -->
+      <div class="side-foot">
+        <span><i class="bi bi-lightning-charge-fill"></i> Powered by <strong>eGradeBook</strong></span>
+        <span><i class="bi bi-code-slash"></i> Developed by <strong>Charles Nixon Cayading</strong></span>
       </div>
-    </div>
+    </section>
 
   </div>
 
@@ -160,6 +250,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       function applyTheme(theme) {
         const isLight = theme === 'light';
         document.body.classList.toggle('light-mode', isLight);
+        /* Ang `preload-light` sa <html> ang pumipigil sa pagkislap bago
+           tumakbo ito; kapag naipasa na sa body, dapat na itong alisin —
+           kung hindi, mananaig pa rin ito kapag nag-switch pabalik sa dark. */
+        document.documentElement.classList.remove('preload-light');
         document.querySelectorAll('.theme-toggle i').forEach(i => {
           i.className = isLight ? ICON_LIGHT : ICON_DARK;
         });
