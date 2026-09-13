@@ -410,6 +410,22 @@ class Schema
             granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (admin_id)
         )");
+
+        /* Onboarding ng guro — guided tour at What's New. KADA ACCOUNT, hindi
+           kada browser: dating nasa localStorage, kaya ang bagong guro sa
+           shared na PC ng faculty room ay hindi nakakakita ng tour (tapos na
+           ito ng gurong nauna sa kanya), at ang lumang guro sa bagong laptop ay
+           inaabala muli. Ang row ay nililikha sa unang page load (tingnan ang
+           OnboardingRepo::state), at ang gurong dati nang may gradebook data
+           ay itinuturing na tapos sa tour. `whatsnew_seen` = data-v (Y-m-d) ng
+           pinakabagong release na nakita. Hindi kasama sa Clear all — hindi
+           gradebook ang mga ito. */
+        $conn->query("CREATE TABLE IF NOT EXISTS grade_onboarding (
+            owner_id      INT NOT NULL PRIMARY KEY,
+            tour_done     TINYINT(1) NOT NULL DEFAULT 0,
+            whatsnew_seen VARCHAR(10) NOT NULL DEFAULT '',
+            updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )");
     }
 
     /* Is $col part of the named index ($index; use 'PRIMARY' for the primary

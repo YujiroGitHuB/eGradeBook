@@ -15,6 +15,7 @@ use App\Controllers\ClassController;
 use App\Controllers\ResetController;
 use App\Controllers\AccessController;
 use App\Controllers\ReportController;
+use App\Controllers\OnboardingController;
 
 /* ============================================================
    Router — maps a `?api=` action to [ControllerClass, method]. Keeps
@@ -82,6 +83,9 @@ class Router
         // app allowlist — SUPERADMIN ONLY (re-checked inside the controller)
         'access_list'           => [AccessController::class, 'listAccounts'],
         'set_access'            => [AccessController::class, 'setAccess'],
+        // onboarding — per-account guided tour + What's New (state is rendered into the page)
+        'onboarding_tour_done'     => [OnboardingController::class, 'tourDone'],
+        'onboarding_whatsnew_seen' => [OnboardingController::class, 'whatsNewSeen'],
     ];
 
     private Database $db;

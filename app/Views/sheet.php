@@ -807,6 +807,9 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
         </div>
     </div>
 
+    <!-- Estado ng onboarding kada account (index.php → OnboardingRepo::state),
+         binabasa ng components/tour.php at supportModal.php. -->
+    <script>window.EG_ONBOARD = <?= json_encode($onboard ?? ['tour' => false, 'whatsnew_seen' => '9999-12-31']) ?>;</script>
     <?php include APP_ROOT . "/components/footer.php"; ?>
 
     <script src="assets/js/global.js?v=<?= filemtime(APP_ROOT . '/assets/js/global.js') ?>"></script>

@@ -496,13 +496,23 @@ object, and computes grades client-side. Grading logic to preserve when editing:
   by `footer.php`, so only the logged-in sheet page has them). The changelog is
   the `whatsnew` entry in `supportModal.php`; the `data-v` (`YYYY-MM-DD`) of the
   **first** `.sm-release` is the version, so adding a newer block at the top is
-  all it takes to auto-open it once for everyone (`eg_whatsnew_seen` in
-  `localStorage`). `tour.php` is a vanilla spotlight tour over real selectors
-  (`STEPS`) — **renaming an id/class it targets silently turns that step into a
-  centered card**, so update `STEPS` alongside. It auto-starts only when
-  *neither* `eg_tour_done` nor `eg_whatsnew_seen` exists (a brand-new user), and
-  in that case What's New stands down and is marked seen when the tour ends, so
-  the two never stack. Replay: Support ▸ Take the tour.
+  all it takes to auto-open it once for every teacher. `tour.php` is a vanilla
+  spotlight tour over real selectors (`STEPS`) — **renaming an id/class it
+  targets silently turns that step into a centered card**, so update `STEPS`
+  alongside. Replay: Support ▸ Take the tour.
+  Both are tracked **per account, not per browser**, in `grade_onboarding`
+  (`OnboardingRepo`): `localStorage` hid the tour from a new teacher on a shared
+  faculty-room PC and re-showed it on every new device. `index.php` renders the
+  state into the page as `window.EG_ONBOARD` (no extra request per load); the
+  only API calls are the writes `onboarding_tour_done` and
+  `onboarding_whatsnew_seen` (strict `Y-m-d`, stored with `GREATEST` so a stale
+  tab can't roll it back). The row is created on first page load, and an
+  account that **already has gradebook data** (`USAGE_TABLES` — deliberately not
+  `grade_transmute`, which is auto-seeded) is recorded as tour-done, so only
+  genuinely new teachers get it. On a brand-new account What's New stands down
+  and is marked seen when the tour ends, so the two never stack. If the state
+  read fails, both auto-opens are off. Not part of `reset_all` — it isn't
+  gradebook content.
 
 `global.js` provides shared UI helpers (`showToast`, `escHtml`, theme toggle —
 theme persisted in `localStorage` under `ff_theme`, shared with FormFlow).

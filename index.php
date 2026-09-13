@@ -85,4 +85,14 @@ if (!array_key_exists('admin_avatar', $_SESSION)) {
     }
 }
 
+/* Onboarding (guided tour + What's New) — kada account, isinusulat sa pahina
+   para walang dagdag na request sa bawat load. Kung pumalya, parehong naka-off
+   ang kusang pagbukas: mas mabuti ang walang popup kaysa popup sa bawat load. */
+try {
+    $onboard = (new App\Models\OnboardingRepo($db, Auth::ownerId()))->state();
+} catch (\Throwable $e) {
+    error_log('eGradeBook onboarding state failed: ' . $e);
+    $onboard = ['tour' => false, 'whatsnew_seen' => '9999-12-31'];
+}
+
 require APP_ROOT . '/app/Views/sheet.php';

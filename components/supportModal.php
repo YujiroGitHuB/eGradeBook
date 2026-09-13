@@ -263,15 +263,21 @@
   };
 
   /* ── AUTO-SHOW NG WHAT'S NEW ───────────────────────────────────────
-     Minsang bubukas sa bawat bagong release. Ang huling nakitang bersyon ay
-     nasa localStorage (per browser) — itinatala sa pagbukas, manual man o
-     kusang, para hindi ito bumalik sa bawat reload. Kung naka-block ang
-     storage, hindi ito kusang bubukas (mas mabuti kaysa bumukas tuwing load). */
-  var WN_KEY = 'eg_whatsnew_seen';
+     Minsang bubukas sa bawat bagong release, KADA ACCOUNT. Ang huling nakitang
+     bersyon ay nasa grade_onboarding (isinulat sa pahina bilang
+     window.EG_ONBOARD ng index.php) — itinatala sa pagbukas, manual man o
+     kusang, para hindi ito bumalik sa bawat reload o sa ibang computer.
+     Walang EG_ONBOARD (pahinang hindi ang grading sheet) = hindi kusang bubukas. */
   var WN_VERSION = (SUPPORT_CONTENT.whatsnew.html.match(/data-v="([\d-]+)"/) || [])[1] || '';
 
   function markWhatsNewSeen() {
-    try { localStorage.setItem(WN_KEY, WN_VERSION); } catch (e) {}
+    var ob = window.EG_ONBOARD;
+    if (!ob || !WN_VERSION || ob.whatsnew_seen >= WN_VERSION) return;   // YYYY-MM-DD: string compare = date compare
+    ob.whatsnew_seen = WN_VERSION;
+    var fd = new FormData();
+    fd.append('api', 'onboarding_whatsnew_seen');
+    fd.append('version', WN_VERSION);
+    fetch('index.php', { method: 'POST', body: fd, credentials: 'same-origin' }).catch(function () {});
   }
 
   window.egMarkWhatsNewSeen = markWhatsNewSeen;   // ginagamit ng tour.php kapag natapos
@@ -279,9 +285,8 @@
   window.addEventListener('load', function () {
     // Bagong user: ang guided tour (components/tour.php) ay mauna; hindi dalawang popup sabay.
     if (window.egTour && window.egTour.autoStarting) return;
-    var seen;
-    try { seen = localStorage.getItem(WN_KEY) || ''; } catch (e) { return; }
-    if (!WN_VERSION || seen >= WN_VERSION) return;   // YYYY-MM-DD: string compare = date compare
+    var ob = window.EG_ONBOARD;
+    if (!ob || !WN_VERSION || ob.whatsnew_seen >= WN_VERSION) return;
     setTimeout(function () {
       // Huwag sapawan ang ibang bukas na modal (hal. confirm, SweetAlert ng detection.js).
       if (document.querySelector('.modal-backdrop.show, .swal2-container')) return;

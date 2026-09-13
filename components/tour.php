@@ -3,10 +3,10 @@
      pahina, iniilawan ang isang elemento, at may maikling card ng paliwanag.
      Walang library — vanilla JS, gaya ng natitirang app.
 
-     Kusang tumatakbo MINSAN para sa bagong user (walang `eg_tour_done` AT
-     walang `eg_whatsnew_seen` sa localStorage — ang huli ay tanda na dati nang
-     gumagamit ang guro, kaya hindi inaabala). Muling buksan anytime sa footer:
-     Support ▸ Take the tour.
+     Kusang tumatakbo MINSAN KADA ACCOUNT para sa bagong user — ang estado ay
+     nasa grade_onboarding (OnboardingRepo), isinulat sa pahina bilang
+     window.EG_ONBOARD. Ang gurong dati nang may gradebook data ay hindi
+     inaabala. Muling buksan anytime sa footer: Support ▸ Take the tour.
 
      Ang step na nakatago ang target (hal. walang napiling section) ay ipinapakita
      sa gitna ng screen sa halip na nilalampasan, para hindi nawawala ang paliwanag. -->
@@ -132,8 +132,6 @@
 <script>
 (function () {
   if (window.egTour) return;
-
-  var DONE_KEY = 'eg_tour_done';
 
   /* Mga step. `target` = CSS selector; null = card sa gitna ng screen. */
   var STEPS = [
@@ -331,9 +329,16 @@
     $('tourSpot').hidden = true;
     $('tourCard').hidden = true;
     $('tourBlock').classList.remove('tour-dim');
-    try { localStorage.setItem(DONE_KEY, '1'); } catch (e) {}
-    // Bagong user: ang listang What's New ay kasaysayan na, hindi balita — huwag nang ipakita.
-    if (window.egMarkWhatsNewSeen) window.egMarkWhatsNewSeen();
+    var ob = window.EG_ONBOARD;
+    if (ob && ob.tour) {
+      // Unang tour ng account — itala sa server (grade_onboarding), minsan lang.
+      ob.tour = false;
+      var fd = new FormData();
+      fd.append('api', 'onboarding_tour_done');
+      fetch('index.php', { method: 'POST', body: fd, credentials: 'same-origin' }).catch(function () {});
+      // Bagong user: ang listang What's New ay kasaysayan na, hindi balita — huwag nang ipakita.
+      if (window.egMarkWhatsNewSeen) window.egMarkWhatsNewSeen();
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -351,10 +356,7 @@
 
   /* Kusang pagsisimula — itinatakda SA PAG-PARSE (hindi sa load) para mabasa
      ng auto-show ng What's New (supportModal.php) at hindi sila magsapawan. */
-  var autoStart = false;
-  try {
-    autoStart = !localStorage.getItem(DONE_KEY) && !localStorage.getItem('eg_whatsnew_seen');
-  } catch (e) { autoStart = false; }
+  var autoStart = !!(window.EG_ONBOARD && window.EG_ONBOARD.tour);
 
   window.egTour = { start: start, autoStarting: autoStart };
 
