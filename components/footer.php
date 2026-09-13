@@ -24,6 +24,7 @@
         <div class="footer-links">
             <span class="footer-links-label">Support</span>
             <ul>
+                <li><a href="#" onclick="openSupportModal('whatsnew');return false;"><i class="bi bi-stars"></i> What's New</a></li>
                 <li><a href="#" onclick="openSupportModal('help');return false;"><i class="bi bi-question-circle"></i> Help Center</a></li>
                 <li><a href="#" onclick="openSupportModal('privacy');return false;"><i class="bi bi-shield-check"></i> Privacy Policy</a></li>
                 <li><a href="#" onclick="openSupportModal('terms');return false;"><i class="bi bi-file-text"></i> Terms of Use</a></li>

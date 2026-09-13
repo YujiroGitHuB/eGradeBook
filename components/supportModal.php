@@ -84,6 +84,24 @@
 .support-modal-body .sm-qa { margin-bottom: .9rem; }
 .support-modal-body .sm-qa strong { display: block; margin-bottom: .15rem; }
 
+/* What's New releases */
+.support-modal-body .sm-release {
+  margin-bottom: 1.1rem;
+  padding-bottom: .9rem;
+  border-bottom: 1px solid var(--border);
+}
+.support-modal-body .sm-release:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.support-modal-body .sm-date {
+  display: inline-block;
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: .1rem .6rem;
+  margin-bottom: .5rem;
+}
+
 /* Transmutation scale table */
 .support-modal-body .sm-scale {
   width: 100%;
@@ -142,6 +160,47 @@
           '</tbody></table></div>' +
         '<div class="sm-qa"><strong>Can I reorder columns?</strong>Yes — drag a column header to reorder it, and the order is saved for that section.</div>' +
         '<p>Still need help? Reach out to your institution\'s administrator or the <a href="https://cncc.vercel.app" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">eGradeBook developer</a>.</p>'
+    },
+    /* WHAT'S NEW — pinakabago sa itaas. Magdagdag ng bagong .sm-release sa
+       unahan tuwing may tampok na mararamdaman ng guro; ang mga panloob na
+       pagbabago (refactor, schema) ay hindi kailangang ilista rito. */
+    whatsnew: {
+      title: 'What\'s New',
+      icon: 'bi-stars',
+      html:
+        '<p>The latest improvements to eGradeBook, newest first.</p>' +
+
+        '<div class="sm-release"><span class="sm-date">August 19, 2026</span>' +
+        '<ul>' +
+          '<li><strong>Attendance split into Midterm and Final.</strong> Set the <strong>Midterm ends</strong> date beside the Attendance checkbox. In term grading you get two attendance columns, and each one counts only the sessions from its own period, so the Midterm grade stops changing once the Midterm is over. Sessions on the cutoff date count toward Midterm. Leave the date blank to keep one attendance column.</li>' +
+          '<li><strong>New login page</strong> with clearer sign-in error messages.</li>' +
+        '</ul></div>' +
+
+        '<div class="sm-release"><span class="sm-date">August 18, 2026</span>' +
+        '<ul>' +
+          '<li><strong>Copy from… fixes.</strong> Copying a setup into a class with term grading on no longer leaves the empty default categories behind. Those empty categories were pulling term grades down. Copying also no longer turns term grading on in a class you set to flat grading.</li>' +
+          '<li><strong>Better on phones.</strong> The page no longer scrolls sideways. The class picker, the More menu and modal buttons now fit small screens.</li>' +
+        '</ul></div>' +
+
+        '<div class="sm-release"><span class="sm-date">August 9, 2026</span>' +
+        '<ul>' +
+          '<li><strong>Report header</strong> (More ▸ Output ▸ Report header…). Add your school, department, title, faculty name, a footer line and a letterhead banner image. They appear on section PDFs, grade slips and printouts. This also fixes the Faculty name showing blank on PDFs.</li>' +
+          '<li><strong>Copy categories between Midterm and Final.</strong> Categories with the same name take the copied weight and missing ones are added. Nothing is deleted.</li>' +
+          '<li><strong>Term and category when adding an activity.</strong> New columns no longer need fixing in the header afterwards.</li>' +
+          '<li><strong>Reset to default</strong> in the Transmutation window puts back the standard PH college scale. Nothing is saved until you press Save.</li>' +
+          '<li><strong>Clear all my data</strong> (More ▸ Danger zone) erases your whole gradebook after you type a confirmation phrase. Your transmutation table is kept.</li>' +
+          '<li><strong>Manage access</strong> (superadmins only). Choose which FormFlow accounts can use eGradeBook.</li>' +
+          '<li><strong>Your FormFlow profile photo</strong> now shows in eGradeBook.</li>' +
+          '<li><strong>A tidier toolbar.</strong> Less-used actions are now grouped in the More menu under Setup, Grading and Output. Confirmation prompts also match the app\'s theme.</li>' +
+        '</ul></div>' +
+
+        '<div class="sm-release"><span class="sm-date">August 8, 2026</span>' +
+        '<ul>' +
+          '<li><strong>Form columns…</strong> (More ▸ Setup). Choose which FormFlow forms belong to a class. You can assign a form to one subject, hide old or one-off forms, and copy the hidden forms from another class of the same section. Hidden forms are not counted in the grade.</li>' +
+          '<li><strong>Delete a class</strong> with the trash button beside the Class dropdown.</li>' +
+          '<li><strong>Fill column and Import CSV</strong> now reach every student on the class sheet, including students who have left the live roster.</li>' +
+          '<li><strong>Faster saving.</strong> Each score saves noticeably quicker.</li>' +
+        '</ul></div>'
     },
     privacy: {
       title: 'Privacy Policy',
