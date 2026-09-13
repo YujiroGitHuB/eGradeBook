@@ -163,26 +163,30 @@
     },
     /* WHAT'S NEW — pinakabago sa itaas. Magdagdag ng bagong .sm-release sa
        unahan tuwing may tampok na mararamdaman ng guro; ang mga panloob na
-       pagbabago (refactor, schema) ay hindi kailangang ilista rito. */
+       pagbabago (refactor, schema) ay hindi kailangang ilista rito.
+       Ang data-v (YYYY-MM-DD) ng UNANG .sm-release ay ang "bersyon": kapag
+       ito ay mas bago kaysa huling nakita ng guro, kusang bubukas ang modal
+       (tingnan ang auto-show sa ibaba). Walang hiwalay na constant na kailangang
+       i-bump — ang pagdagdag ng bagong release ay nagpapakita na nito. */
     whatsnew: {
       title: 'What\'s New',
       icon: 'bi-stars',
       html:
         '<p>The latest improvements to eGradeBook, newest first.</p>' +
 
-        '<div class="sm-release"><span class="sm-date">August 19, 2026</span>' +
+        '<div class="sm-release" data-v="2026-08-19"><span class="sm-date">August 19, 2026</span>' +
         '<ul>' +
           '<li><strong>Attendance split into Midterm and Final.</strong> Set the <strong>Midterm ends</strong> date beside the Attendance checkbox. In term grading you get two attendance columns, and each one counts only the sessions from its own period, so the Midterm grade stops changing once the Midterm is over. Sessions on the cutoff date count toward Midterm. Leave the date blank to keep one attendance column.</li>' +
           '<li><strong>New login page</strong> with clearer sign-in error messages.</li>' +
         '</ul></div>' +
 
-        '<div class="sm-release"><span class="sm-date">August 18, 2026</span>' +
+        '<div class="sm-release" data-v="2026-08-18"><span class="sm-date">August 18, 2026</span>' +
         '<ul>' +
           '<li><strong>Copy from… fixes.</strong> Copying a setup into a class with term grading on no longer leaves the empty default categories behind. Those empty categories were pulling term grades down. Copying also no longer turns term grading on in a class you set to flat grading.</li>' +
           '<li><strong>Better on phones.</strong> The page no longer scrolls sideways. The class picker, the More menu and modal buttons now fit small screens.</li>' +
         '</ul></div>' +
 
-        '<div class="sm-release"><span class="sm-date">August 9, 2026</span>' +
+        '<div class="sm-release" data-v="2026-08-09"><span class="sm-date">August 9, 2026</span>' +
         '<ul>' +
           '<li><strong>Report header</strong> (More ▸ Output ▸ Report header…). Add your school, department, title, faculty name, a footer line and a letterhead banner image. They appear on section PDFs, grade slips and printouts. This also fixes the Faculty name showing blank on PDFs.</li>' +
           '<li><strong>Copy categories between Midterm and Final.</strong> Categories with the same name take the copied weight and missing ones are added. Nothing is deleted.</li>' +
@@ -194,7 +198,7 @@
           '<li><strong>A tidier toolbar.</strong> Less-used actions are now grouped in the More menu under Setup, Grading and Output. Confirmation prompts also match the app\'s theme.</li>' +
         '</ul></div>' +
 
-        '<div class="sm-release"><span class="sm-date">August 8, 2026</span>' +
+        '<div class="sm-release" data-v="2026-08-08"><span class="sm-date">August 8, 2026</span>' +
         '<ul>' +
           '<li><strong>Form columns…</strong> (More ▸ Setup). Choose which FormFlow forms belong to a class. You can assign a form to one subject, hide old or one-off forms, and copy the hidden forms from another class of the same section. Hidden forms are not counted in the grade.</li>' +
           '<li><strong>Delete a class</strong> with the trash button beside the Class dropdown.</li>' +
@@ -255,7 +259,31 @@
     document.getElementById('supportModalBody').innerHTML = data.html;
     document.getElementById('supportModalBackdrop').classList.add('show');
     document.body.style.overflow = 'hidden';
+    if (key === 'whatsnew') markWhatsNewSeen();
   };
+
+  /* ── AUTO-SHOW NG WHAT'S NEW ───────────────────────────────────────
+     Minsang bubukas sa bawat bagong release. Ang huling nakitang bersyon ay
+     nasa localStorage (per browser) — itinatala sa pagbukas, manual man o
+     kusang, para hindi ito bumalik sa bawat reload. Kung naka-block ang
+     storage, hindi ito kusang bubukas (mas mabuti kaysa bumukas tuwing load). */
+  var WN_KEY = 'eg_whatsnew_seen';
+  var WN_VERSION = (SUPPORT_CONTENT.whatsnew.html.match(/data-v="([\d-]+)"/) || [])[1] || '';
+
+  function markWhatsNewSeen() {
+    try { localStorage.setItem(WN_KEY, WN_VERSION); } catch (e) {}
+  }
+
+  window.addEventListener('load', function () {
+    var seen;
+    try { seen = localStorage.getItem(WN_KEY) || ''; } catch (e) { return; }
+    if (!WN_VERSION || seen >= WN_VERSION) return;   // YYYY-MM-DD: string compare = date compare
+    setTimeout(function () {
+      // Huwag sapawan ang ibang bukas na modal (hal. confirm, SweetAlert ng detection.js).
+      if (document.querySelector('.modal-backdrop.show, .swal2-container')) return;
+      window.openSupportModal('whatsnew');
+    }, 800);
+  });
 
   window.closeSupportModal = function () {
     document.getElementById('supportModalBackdrop').classList.remove('show');
