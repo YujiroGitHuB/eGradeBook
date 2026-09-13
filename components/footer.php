@@ -24,6 +24,7 @@
         <div class="footer-links">
             <span class="footer-links-label">Support</span>
             <ul>
+                <li><a href="#" onclick="window.egTour && egTour.start();return false;"><i class="bi bi-signpost-split"></i> Take the tour</a></li>
                 <li><a href="#" onclick="openSupportModal('whatsnew');return false;"><i class="bi bi-stars"></i> What's New</a></li>
                 <li><a href="#" onclick="openSupportModal('help');return false;"><i class="bi bi-question-circle"></i> Help Center</a></li>
                 <li><a href="#" onclick="openSupportModal('privacy');return false;"><i class="bi bi-shield-check"></i> Privacy Policy</a></li>
@@ -60,4 +61,5 @@
 
 </footer>
 <?php include __DIR__ . '/supportModal.php'; ?>
+<?php include __DIR__ . '/tour.php'; ?>
 <?php include __DIR__ . '/logoutModal.php'; ?>

@@ -274,7 +274,11 @@
     try { localStorage.setItem(WN_KEY, WN_VERSION); } catch (e) {}
   }
 
+  window.egMarkWhatsNewSeen = markWhatsNewSeen;   // ginagamit ng tour.php kapag natapos
+
   window.addEventListener('load', function () {
+    // Bagong user: ang guided tour (components/tour.php) ay mauna; hindi dalawang popup sabay.
+    if (window.egTour && window.egTour.autoStarting) return;
     var seen;
     try { seen = localStorage.getItem(WN_KEY) || ''; } catch (e) { return; }
     if (!WN_VERSION || seen >= WN_VERSION) return;   // YYYY-MM-DD: string compare = date compare
