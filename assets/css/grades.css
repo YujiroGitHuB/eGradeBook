@@ -1645,6 +1645,10 @@ table.gs tbody td.fin-cell {
         min-width: 0;
     }
 
+    /* Search sa pinakababa ng controls sa mobile — sa tapat ng table na
+       sinasala nito. Visual order only; ang DOM (at Tab order) ay hindi binago. */
+    .gs-czone > .gs-search-field { order: 1; }
+
     /* Ang .gs-class-row ay anak ng column-flex na .gs-field — width ang
        gamit dito, hindi flex-basis (taas ang ibig sabihin niyon doon). */
     .gs-class-row { width: 100%; }

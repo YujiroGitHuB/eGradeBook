@@ -205,7 +205,9 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
           </div>
 
           <div class="gs-czone gs-czone-right">
-            <div class="gs-field">
+            <!-- .gs-search-field: sa mobile ay inilipat sa pinakababa (CSS order)
+                 para ang mga setting ay nasa itaas at ang search ay malapit sa table. -->
+            <div class="gs-field gs-search-field">
                 <label for="txtSearch">Search student</label>
                 <input type="text" id="txtSearch" placeholder="Search anything…" title="Search by name, student number, status (INC/DRP/W or a custom label), or passed/failed">
             </div>
