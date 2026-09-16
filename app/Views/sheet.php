@@ -110,6 +110,7 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
                         <div class="profile-menu-divider"></div>
                         <div class="gs-more-label">Grading</div>
                         <button class="profile-menu-item" id="btnTransmute" role="menuitem"><i class="bi bi-arrow-left-right"></i> Transmutation</button>
+                        <button class="profile-menu-item" id="btnRanking" role="menuitem" title="Who is leading this class — ranked by the same grade shown on the sheet"><i class="bi bi-trophy"></i> Class ranking…</button>
                         <div class="profile-menu-divider"></div>
                         <div class="gs-more-label">Output</div>
                         <button class="profile-menu-item" id="btnBackup" role="menuitem"><i class="bi bi-file-earmark-excel"></i> Backup all (Excel)</button>
@@ -787,6 +788,23 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
                 <button class="btn btn-ghost btn-sm" id="tmReset" style="margin-right:auto;" title="Put the standard PH college scale back in the table (you still have to Save)"><i class="bi bi-arrow-counterclockwise"></i> Reset to default</button>
                 <button class="btn btn-ghost" id="tmCancel">Cancel</button>
                 <button class="btn btn-primary" id="tmSave"><i class="bi bi-check-lg"></i> Save table</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sino ang nangunguna sa klase — pareho ng grado na nasa sheet -->
+    <div class="modal-backdrop" id="rankModal">
+        <div class="modal gs-maccent" style="max-width:580px;">
+            <div class="gs-mhead">
+                <div class="gs-mhead-ic"><i class="bi bi-trophy"></i></div>
+                <div>
+                    <h3 class="gs-mtitle">Class ranking</h3>
+                    <p class="gs-msub" id="rkSub"></p>
+                </div>
+            </div>
+            <div id="rkBody" class="rk-body"></div>
+            <div class="modal-actions" style="margin-top:1.3rem;">
+                <button class="btn btn-ghost" id="rkClose"><i class="bi bi-x-lg"></i> Close</button>
             </div>
         </div>
     </div>

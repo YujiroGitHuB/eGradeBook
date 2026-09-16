@@ -3297,6 +3297,128 @@ async function applyCopy() {
 
 /* ── Per-student grade breakdown ────────────────────────── */
 let bdStudentNo = null;   // student_no whose breakdown is currently open (for Save PDF)
+/* ── Class ranking (More ▸ Grading ▸ Class ranking…) ─────
+   "Sino ang nangunguna sa klase?" — dating kailangang i-sort ang talahanayan
+   sa General Ave at basahin pataas, at kahit ganoon ay wala pa ring ranggo.
+
+   Ang ranggo ay galing sa MISMONG grado ng sheet (studentSortVal(s,'grade')),
+   kaya imposibleng magkaiba ang dalawa: kasama na roon ang mode (term/flat),
+   ang mga naka-check na column, at ang "Missing = 0". Ang kabaligtaran nito —
+   sariling kuwenta ang ranking — ay isang tabla na sumasalungat sa katabi nito.
+
+   Hindi kalahok sa ranggo ang may status override (INC/DRP/W o pasadyang label)
+   at ang wala pang kahit anong score: walang saysay ang iranggo ang hindi pa
+   nagra-rank o umalis na. Binibilang pa rin sila sa ibaba para hindi sila
+   basta nawawala sa tingin ng guro. */
+const RANK_MEDAL = ['🥇', '🥈', '🥉'];
+
+function buildRanking() {
+    const ranked = [], unranked = [];
+    SHEET.students.forEach(s => {
+        const st = (SHEET.statuses || {})[s.student_no] || '';
+        if (st) { unranked.push({ s, why: STATUS_FULL[st] || st }); return; }
+        const v = studentSortVal(s, 'grade');
+        if (v === null) { unranked.push({ s, why: 'Not graded' }); return; }
+        ranked.push({ s, val: v });
+    });
+    /* Ang pagkakasunod at ang ranggo ay pareho ang batayan: ang IPINAPAKITANG
+       2 desimal. Kung raw na halaga ang pagbabatayan ng pagkakasunod, dalawang
+       estudyanteng kapwa "90.00" ang nakasulat ay maaaring magkaiba ng puwesto
+       dahil sa hindi nakikitang 90.004 — walang maipaliwanag ang guro doon.
+       Alpabetiko ang loob ng pantay na grupo, hindi ayon sa roster. */
+    const shown = r => Number(r.val.toFixed(2));
+    ranked.sort((a, b) => (shown(b) - shown(a))
+        || (a.s.fullname || '').localeCompare(b.s.fullname || ''));
+    /* Pantay na grado = pantay na ranggo (1, 2, 2, 4) — nilalaktawan ang
+       nasakop na puwesto, gaya ng karaniwang ranking. */
+    let rank = 0, prev = null;
+    ranked.forEach((r, i) => {
+        const k = r.val.toFixed(2);
+        if (k !== prev) { rank = i + 1; prev = k; }
+        r.rank = rank;
+    });
+    return { ranked, unranked };
+}
+
+function openRanking() {
+    if (!SHEET || !SHEET.students.length) { showToastSafe('Open a section first.', 'error'); return; }
+    const termMode = SHEET.term_mode === true;
+    const pass = clampPct(parseFloat($('numPass').value) || 0);
+    const { ranked, unranked } = buildRanking();
+
+    /* Ipinapakita ang ganoon ding hanay na nasa dulo ng sheet: sa term mode ay
+       General Ave + Equivalent, sa flat mode ay % + Passed/Failed. */
+    const val = r => termMode ? r.val.toFixed(2) : r.val.toFixed(1) + '%';
+    const tail = r => {
+        if (termMode) {
+            const eq = transmuteExcel(r.val);
+            return `<span class="${eq !== null ? 'rk-pass' : 'rk-fail'}">${eq !== null ? eq : '5.00'}</span>`;
+        }
+        const ok = r.val >= pass;
+        return `<span class="${ok ? 'rk-pass' : 'rk-fail'}">${ok ? 'Passed' : 'Failed'}</span>`;
+    };
+
+    $('rkSub').textContent = [
+        SHEET.section || '—',
+        classIsLegacy() ? '' : classLabel(CLASS),
+        `${ranked.length} ranked${unranked.length ? ` · ${unranked.length} not ranked` : ''}`,
+    ].filter(Boolean).join(' · ');
+
+    let html = '';
+    if (!ranked.length) {
+        html += `<div class="bd-empty">No one is graded yet — add a score and the ranking fills in.</div>`;
+    } else {
+        /* Podium — medalya ayon sa RANGGO, hindi sa pagkakasunod, kaya ang
+           tabla ay hindi nagsisinungaling kapag may pantay (1, 2, 2 → 🥇🥈🥈). */
+        html += `<div class="rk-podium">` + ranked.slice(0, 3).map(r => `
+            <div class="rk-pod rk-pod-${Math.min(r.rank, 3)}">
+                <div class="rk-medal">${RANK_MEDAL[Math.min(r.rank, 3) - 1]}</div>
+                <div class="rk-pod-name">${escHtml(r.s.fullname || '')}</div>
+                <div class="rk-pod-val">${val(r)}</div>
+                <div class="rk-pod-sub">${tail(r)}</div>
+            </div>`).join('') + `</div>`;
+
+        html += `<table class="rk-table"><thead><tr>
+                    <th class="rk-c-rank">#</th><th>Student</th>
+                    <th class="rk-c-val">${termMode ? 'General Ave' : 'Grade'}</th>
+                    <th class="rk-c-eq">${termMode ? 'Equivalent' : 'Remark'}</th>
+                 </tr></thead><tbody>`;
+        html += ranked.map(r => `<tr class="rk-row${r.rank <= 3 ? ' rk-top' : ''}" data-sno="${escAttr(r.s.student_no)}" title="View grade breakdown">
+                    <td class="rk-c-rank">${r.rank <= 3 ? RANK_MEDAL[r.rank - 1] : r.rank}</td>
+                    <td class="rk-name">${escHtml(r.s.fullname || '')}<span class="sn">${escHtml(r.s.student_no || '')}</span></td>
+                    <td class="rk-c-val">${val(r)}</td>
+                    <td class="rk-c-eq">${tail(r)}</td>
+                 </tr>`).join('');
+        html += `</tbody></table>`;
+    }
+
+    if (unranked.length) {
+        const names = unranked.slice(0, 6)
+            .map(u => `${escHtml(u.s.fullname || u.s.student_no)} <em>(${escHtml(u.why)})</em>`).join(' · ');
+        const more = unranked.length > 6 ? ` · and ${unranked.length - 6} more` : '';
+        html += `<div class="rk-note"><i class="bi bi-info-circle"></i>
+                    <span><b>${unranked.length}</b> not ranked — ${names}${more}</span></div>`;
+    }
+
+    /* Ang basehan ay nakasulat, dahil nagbabago ito sa dalawang kontrol na nasa
+       labas ng modal na ito (ang column picker at ang "Missing = 0"). */
+    const selN = SHEET.columns.filter(c => selectedCols.has(c.key)).length;
+    html += `<div class="bd-method">Ranked by the same grade shown on the sheet —
+                ${termMode ? 'term mode (Midterm + Final) ÷ 2' : `coursework, passing ${pass}%`},
+                ${selN} of ${SHEET.columns.length} column${SHEET.columns.length === 1 ? '' : 's'} counted,
+                missing scores ${$('chkMissingZero').checked ? 'counted as 0' : 'skipped'}.</div>`;
+
+    $('rkBody').innerHTML = html;
+    /* Isang pindot mula sa ranggo papunta sa "bakit ganito" — ipinapalit ang
+       modal (hindi nagsasalansan), kaya iisa lang ang bukas kahit kailan. */
+    $('rkBody').querySelectorAll('tr.rk-row').forEach(tr => {
+        tr.addEventListener('click', () => { closeRanking(); openBreakdown(tr.dataset.sno); });
+    });
+    $('rankModal').classList.add('show');
+}
+
+function closeRanking() { $('rankModal').classList.remove('show'); }
+
 function openBreakdown(sno) {
     if (!SHEET) return;
     const s = SHEET.students.find(st => String(st.student_no) === String(sno));
@@ -4010,6 +4132,15 @@ $('tmCancel').addEventListener('click', closeTmModal);
 $('tmAddBand').addEventListener('click', tmAddBand);
 $('tmReset').addEventListener('click', tmResetDefaults);
 $('tmSave').addEventListener('click', saveTm);
+$('btnRanking').addEventListener('click', openRanking);
+$('rkClose').addEventListener('click', closeRanking);
+/* View-only rin ito, kaya pareho ng breakdown: backdrop at Escape ay sumasara. */
+$('rankModal').addEventListener('click', e => {
+    if (e.target === $('rankModal')) closeRanking();
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && $('rankModal').classList.contains('show')) closeRanking();
+});
 $('bdClose').addEventListener('click', closeBreakdown);
 $('bdPdf').addEventListener('click', exportStudentPDF);
 /* View-only breakdown: also dismiss on backdrop click and Escape, so browsing

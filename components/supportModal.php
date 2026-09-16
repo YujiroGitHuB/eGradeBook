@@ -174,6 +174,12 @@
       html:
         '<p>The latest improvements to eGradeBook, newest first.</p>' +
 
+        '<div class="sm-release" data-v="2026-09-16"><span class="sm-date">September 16, 2026</span>' +
+        '<ul>' +
+          '<li><strong>See how many are scored at a glance.</strong> Every column header now shows how many students have a score and how many are still blank, so you no longer have to count down the column. Click that count and the sheet lists <em>only</em> the students with no score in that column — fill them in, then press <strong>Show all students</strong>. A score of 0 counts as scored; only an empty cell is treated as missing.</li>' +
+          '<li><strong>Class ranking</strong> (More ▸ Grading ▸ Class ranking…). Shows who is leading the class, with the top three on a podium and the full ranked list below. Students with the same grade share the same rank. Anyone marked INC/DRP/W or not yet graded is listed separately instead of being ranked. Click a name to open that student\'s grade breakdown.</li>' +
+        '</ul></div>' +
+
         '<div class="sm-release" data-v="2026-08-19"><span class="sm-date">August 19, 2026</span>' +
         '<ul>' +
           '<li><strong>Attendance split into Midterm and Final.</strong> Set the <strong>Midterm ends</strong> date beside the Attendance checkbox. In term grading you get two attendance columns, and each one counts only the sessions from its own period, so the Midterm grade stops changing once the Midterm is over. Sessions on the cutoff date count toward Midterm. Leave the date blank to keep one attendance column.</li>' +

@@ -2208,6 +2208,153 @@ table.gs tbody td.fin-cell {
 
 .bd-empty { color: var(--muted); font-size: .9rem; padding: .5rem 0; }
 
+/* ── Class ranking ─────────────────────────────────────────────────────
+   Kasunod ng anyo ng breakdown modal (.bd-body) para pamilyar agad. */
+.rk-body {
+    display: flex;
+    flex-direction: column;
+    gap: .9rem;
+    margin-top: 1.2rem;
+    max-height: 62vh;
+    overflow-y: auto;
+    padding-right: .2rem;
+}
+
+/* Podium — tatlong card, pumapatong sa isang hanay kapag makitid ang screen */
+.rk-podium {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: .5rem;
+}
+
+.rk-pod {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: .6rem .5rem;
+    text-align: center;
+    background: var(--surface);
+    min-width: 0;
+}
+
+.rk-pod-1 {
+    border-color: color-mix(in srgb, var(--accent3) 55%, transparent);
+    background: color-mix(in srgb, var(--accent3) 10%, transparent);
+}
+
+.rk-medal { font-size: 1.35rem; line-height: 1.1; }
+
+.rk-pod-name {
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-top: .2rem;
+    /* mahahabang pangalan: dalawang linya, tapos ellipsis — hindi lumalapad */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.rk-pod-val {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    margin-top: .15rem;
+}
+
+.rk-pod-sub { font-size: .72rem; margin-top: .1rem; }
+
+/* Buong listahan */
+.rk-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .82rem;
+}
+
+.rk-table thead th {
+    text-align: left;
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 .4rem .35rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.rk-table td {
+    padding: .4rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+.rk-table tr:last-child td { border-bottom: none; }
+
+.rk-row { cursor: pointer; }
+
+.rk-row:hover td { background: var(--surface); }
+
+.rk-top td { background: color-mix(in srgb, var(--accent3) 6%, transparent); }
+
+.rk-c-rank {
+    width: 2.4rem;
+    text-align: center;
+    font-weight: 700;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.rk-c-val,
+.rk-table thead th.rk-c-val {
+    text-align: right;
+    width: 5.5rem;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.rk-c-eq,
+.rk-table thead th.rk-c-eq {
+    text-align: right;
+    width: 5.5rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.rk-name { color: var(--text); font-weight: 500; }
+
+.rk-name .sn {
+    display: block;
+    font-size: .68rem;
+    font-weight: 400;
+    color: var(--muted);
+}
+
+.rk-pass { color: var(--success); font-weight: 700; }
+.rk-fail { color: var(--danger); font-weight: 700; }
+
+/* Sino ang wala sa ranggo at bakit — hindi sila basta nawawala sa tingin */
+.rk-note {
+    display: flex;
+    gap: .45rem;
+    align-items: flex-start;
+    font-size: .74rem;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .45rem .6rem;
+}
+
+.rk-note i { color: var(--accent2); margin-top: .1rem; }
+.rk-note b { color: var(--text); }
+.rk-note em { font-style: normal; opacity: .8; }
+
+@media (max-width: 480px) {
+    .rk-podium { grid-template-columns: 1fr; }
+}
+
 .bd-method {
     font-size: .74rem;
     color: var(--muted);
