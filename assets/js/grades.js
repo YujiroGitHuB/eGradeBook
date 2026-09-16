@@ -8,6 +8,11 @@ let SESSION_ENDED = false;    // 401 na nakita — isang babala lang, hindi kada
 let selectedStudents = new Set(); // set of student_no selected for bulk edit
 let sortKey = null;               // null | 'name' | 'grade' — row sort column
 let sortDir = 1;                  // 1 = ascending, -1 = descending
+/* "Ipakita ang walang score" — kung aling column ang sinasala ngayon, at ang
+   listahan ng walang score NOONG pinindot ito. Naka-snapshot ang listahan para
+   hindi bigla nawawala ang hilera habang tinatype ang score (checklist ito). */
+let blankFilterKey = null;        // column key ('a3','f7','att') o null
+let blankFilterSet = null;        // Set ng student_no na walang score noon
 
 /* Per-student final status overrides. INC/DRP/W are built in; anything else is
    a teacher's custom label (shown as-is, styled with the neutral st-custom). */
@@ -656,6 +661,9 @@ async function loadSheet(section) {
     SHEET = d;
     if (Array.isArray(d.grade_equiv) && d.grade_equiv.length) TRANSMUTE = d.grade_equiv;   // keep global bands in sync
     if (prevSection !== d.section) selectedStudents.clear();   // reset selection on the new section
+    /* Ang "walang score lang" na listahan ay para sa isang partikular na column
+       ng dating sheet — hindi ito dala sa bagong klase/seksiyon. */
+    blankFilterKey = null; blankFilterSet = null;
     $('btnAddActivity').title = '';
     /* default selected: columns that have content; activities always checked */
     selectedCols = new Set(d.columns.filter(c => c.type === 'activity' || c.responded > 0).map(c => c.key));
@@ -737,6 +745,80 @@ function getRec(studentNo, key) {
     return (SHEET.scores[studentNo] || {})[key];
 }
 
+/* ── "Ilan na ang may score?" ────────────────────────────
+   Dating binibilang ng guro isa-isa sa talahanayan kung sino ang may score at
+   sino ang wala. Ang bilang ay ipinapakita na ngayon sa ulo ng bawat column,
+   at kapag pinindot ay ang mga walang score lang ang natitira sa listahan. */
+
+/* May laman na ba ang cell ng estudyante sa column na ito?
+   Ang attendance ay may halaga para sa LAHAT (absent = 0, tingnan ang
+   SheetRepo), kaya doon ang basehan ay "may dumalo man lang" — hindi ang
+   pagkakaroon ng record, dahil laging meron. */
+function hasEntry(studentNo, c) {
+    const rec = getRec(studentNo, c.key);
+    if (!rec) return false;
+    if (c.type === 'attendance') return (Number(rec.score) || 0) > 0;
+    return true;
+}
+
+/* Buong roster ang binibilang — hindi ang na-search na listahan — para hindi
+   nagbabago ang kahulugan ng bilang habang naghahanap; katulad ito ng matagal
+   nang bilang sa column picker (responded/total). */
+function columnFill(c) {
+    const total = SHEET.students.length;
+    let scored = 0;
+    SHEET.students.forEach(s => { if (hasEntry(s.student_no, c)) scored++; });
+    return { scored, total, blank: total - scored };
+}
+
+/* Buksan / isara ang "walang score lang" na listahan para sa isang column.
+   Kinukuha ang listahan NGAYON at itinatago — tingnan ang blankFilterSet. */
+function toggleBlankFilter(key) {
+    if (!key || !SHEET) return;
+    if (blankFilterKey === key) { blankFilterKey = null; blankFilterSet = null; render(); return; }
+    const col = SHEET.columns.find(c => c.key === key);
+    if (!col) return;
+    const blanks = SHEET.students.filter(s => !hasEntry(s.student_no, col)).map(s => s.student_no);
+    if (!blanks.length) {
+        /* Walang isasala — mas malinaw ang sabihin ito kaysa sa blangkong tabla. */
+        showToastSafe(col.type === 'attendance'
+            ? 'Everyone has at least one attendance scan here.'
+            : `Everyone already has a score in “${col.title}”.`, 'success');
+        return;
+    }
+    blankFilterKey = key;
+    blankFilterSet = new Set(blanks);
+    render();
+}
+
+/* Ang "Show all students" sa banner — nasa labas ng talahanayan kaya hiwalay
+   itong kinakabit, at kahit walang lumabas na hilera ay maaabot pa rin ito. */
+function wireBlankNote() {
+    const b = $('btnClearBlank');
+    if (b) b.addEventListener('click', () => {
+        blankFilterKey = null; blankFilterSet = null; render();
+    });
+}
+
+/* Ang chip sa ulo ng column: ilan ang may score, ilan ang wala pa. */
+function fillChip(c) {
+    const f = columnFill(c);
+    if (!f.total) return '';
+    const on  = blankFilterKey === c.key;
+    const att = c.type === 'attendance';
+    const tip = on
+        ? 'Showing only the blanks — click again to bring everyone back.'
+        : f.blank === 0
+        ? `Complete — all ${f.total} student${f.total === 1 ? '' : 's'} ${att ? 'have attendance' : 'have a score'}.`
+        : `${f.scored} ${att ? 'attended' : 'scored'} · ${f.blank} ${att ? 'never attended' : 'with no score yet'}. `
+          + `Click to list only those ${f.blank}.`;
+    const label = f.blank === 0
+        ? `<i class="bi bi-check2-circle"></i>${f.scored}/${f.total}`
+        : `<i class="bi bi-check2"></i>${f.scored}<span class="cf-gap">·</span><i class="bi bi-dash-circle"></i>${f.blank}`;
+    return `<span class="cf-row"><button type="button" class="col-fill${f.blank === 0 ? ' done' : ''}${on ? ' on' : ''}"
+                data-colkey="${escAttr(c.key)}" data-tip="${escAttr(tip)}">${label}</button></span>`;
+}
+
 /* Computed pass/fail of a student — 'passed' | 'failed' | '' (empty when not
    graded yet, or when a status override INC/DRP/W applies). Used by search so
    a teacher can type "passed" / "failed" to filter the roster. */
@@ -794,10 +876,31 @@ function render() {
             || stText.includes(search);
     });
 
+    /* "Ipakita ang walang score" — mula sa pagpindot ng bilang sa ulo ng column.
+       Ang naka-snapshot na listahan ang sinusunod, hindi ang kasalukuyang laman,
+       kaya hindi nawawala ang hilera sa mismong sandaling nailagay ang score —
+       nagiging checklist ito ng natitirang gagawin. Kusa itong nabubura kapag
+       wala na ang column (halimbawa, binura o na-uncheck). */
+    let blankCol = blankFilterKey ? SHEET.columns.find(c => c.key === blankFilterKey) : null;
+    if (blankFilterKey && (!blankCol || !blankFilterSet)) {
+        blankFilterKey = null; blankFilterSet = null; blankCol = null;
+    }
+    let blankNote = '';
+    if (blankCol) {
+        students = students.filter(s => blankFilterSet.has(s.student_no));
+        const filled = [...blankFilterSet].filter(sno => hasEntry(sno, blankCol)).length;
+        const n = blankFilterSet.size;
+        blankNote = `<div class="gs-hint gs-blank-note"><i class="bi bi-funnel"></i>
+            <span>Showing the <b>${n}</b> student${n === 1 ? '' : 's'} with no score in
+            <b>${escHtml(blankCol.title)}</b>${filled ? ` — <b>${filled}</b> filled in so far` : ''}.</span>
+            <button type="button" class="gs-blank-clear" id="btnClearBlank">Show all students</button></div>`;
+    }
+
     if (!students.length) {
         const msg = search ? 'No matching student.' : 'No students found in this section.';
-        $('gsArea').innerHTML = `<div class="gs-empty"><i class="bi bi-person-x"></i>${msg}</div>`;
+        $('gsArea').innerHTML = blankNote + `<div class="gs-empty"><i class="bi bi-person-x"></i>${msg}</div>`;
         $('gsStats').style.display = 'none';
+        wireBlankNote();
         return;
     }
 
@@ -850,7 +953,7 @@ function render() {
                             <button class="act-link ${c.linked ? 'on' : ''}" data-aid="${c.id}" data-key="${c.key}" data-tip="${c.linked ? 'Sync ON — editing a score updates every cell with the same value. Click to turn off.' : 'Sync same scores — when ON, editing a cell also updates all cells that share the same value.'}"><i class="bi bi-link-45deg"></i></button>
                             <button class="act-fill" data-aid="${c.id}" data-tip="Fill the same score for all students"><i class="bi bi-arrow-bar-down"></i></button>
                             <button class="act-del" data-aid="${c.id}" data-tip="Delete this activity">&times;</button></span>
-                            ${sub}<span class="act-print">${escHtml(c.title)}${_printSub}</span></th>`;
+                            ${sub}${fillChip(c)}<span class="act-print">${escHtml(c.title)}${_printSub}</span></th>`;
         } else if (c.type === 'defense') {
             const subTxt = c.scale === '5' ? 'defense · 1.00–5.00' : 'defense · live avg';
             head += `<th class="dfn-col" title="From defense panel (live, read-only)">${escHtml(c.title)}<span class="sub">${subTxt}</span></th>`;
@@ -892,7 +995,7 @@ function render() {
                             <span class="act-drag" draggable="true" data-colkey="${c.key}" data-tip="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
                             <span class="frm-title" data-tip="From FormFlow — rename it there"><i class="bi bi-ui-checks-grid frm-ic"></i>${escHtml(c.title)}</span>
                             <button class="frm-hide" data-fid="${c.id}" data-tip="Hide in this class — FormFlow shows a section's forms in every class of that section. Hiding removes it here only (and from the grade); it stays in FormFlow and in your other classes."><i class="bi bi-eye-slash"></i></button></span>
-                            ${fsub}<span class="act-print">${escHtml(c.title)}${_fprintSub}</span></th>`;
+                            ${fsub}${fillChip(c)}<span class="act-print">${escHtml(c.title)}${_fprintSub}</span></th>`;
         } else if (c.type === 'attendance') {
             /* Attendance column — AUTO from the QR scans. Score (present ÷
                sessions) is READ-ONLY; only the eGradeBook overlay (term,
@@ -938,7 +1041,7 @@ function render() {
             head += `<th class="act-col frm-col att-col" data-colkey="${c.key}"><span class="act-head">
                             <span class="act-drag" draggable="true" data-colkey="${c.key}" data-tip="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
                             <span class="frm-title" data-tip="Auto from QR attendance — present ÷ sessions"><i class="bi bi-calendar-check frm-ic"></i>${escHtml(c.title)}</span></span>
-                            ${asub}<span class="act-print">${escHtml(c.title)}${_aprintSub}</span></th>`;
+                            ${asub}${fillChip(c)}<span class="act-print">${escHtml(c.title)}${_aprintSub}</span></th>`;
         } else {
             head += `<th>${escHtml(c.title)}<span class="sub">/ ${c.max || '?'}</span></th>`;
         }
@@ -1181,7 +1284,7 @@ function render() {
         };
     }
 
-    $('gsArea').innerHTML = hint + wtNote + printHead + `<div class="gs-topscroll"><div class="gs-topscroll-inner"></div></div><div class="gs-wrap"><table class="gs"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+    $('gsArea').innerHTML = hint + blankNote + wtNote + printHead + `<div class="gs-topscroll"><div class="gs-topscroll-inner"></div></div><div class="gs-wrap"><table class="gs"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 
     /* restore scroll + focus */
     const _newWrap = $('gsArea').querySelector('.gs-wrap');
@@ -1244,6 +1347,11 @@ function render() {
     $('gsArea').querySelectorAll('.act-fill').forEach(btn => {
         btn.addEventListener('click', () => bulkFillActivity(parseInt(btn.dataset.aid)));
     });
+    /* wire the per-column score-count chips (click = list only the blanks) */
+    $('gsArea').querySelectorAll('.col-fill').forEach(btn => {
+        btn.addEventListener('click', () => toggleBlankFilter(btn.dataset.colkey));
+    });
+    wireBlankNote();
     /* wire sync (same-score) toggle buttons */
     $('gsArea').querySelectorAll('.act-link').forEach(btn => {
         btn.addEventListener('click', () => toggleLinkedActivity(parseInt(btn.dataset.aid)));

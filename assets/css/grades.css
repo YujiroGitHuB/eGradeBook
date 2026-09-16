@@ -1098,6 +1098,95 @@ th.frm-col {
     cursor: help;
 }
 
+/* ── "Ilan na ang may score?" na chip sa ulo ng bawat column ──────────────
+   Buong roster ang bilang, hindi ang na-search na listahan. Pindutin at ang
+   mga walang score lang ang matitira sa talahanayan (.gs-blank-note sa itaas
+   ang nagsasabi kung paano bumalik). */
+.cf-row {
+    display: block;
+    margin-top: 3px;
+    line-height: 1;
+}
+
+.col-fill {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 1px .4rem;
+    font-size: .62rem;
+    font-weight: 700;
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.col-fill i {
+    font-size: .66rem;
+}
+
+/* ang bilang ng kulang — dilaw, para agad makita kung alin ang hindi pa tapos */
+.col-fill i.bi-dash-circle {
+    color: var(--accent3);
+    margin-left: 2px;
+}
+
+.col-fill .cf-gap {
+    opacity: .45;
+    font-weight: 400;
+}
+
+.col-fill:hover {
+    color: var(--text);
+    border-color: var(--accent2);
+}
+
+/* kumpleto na — walang dapat habulin */
+.col-fill.done {
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 35%, transparent);
+    background: color-mix(in srgb, var(--success) 8%, transparent);
+}
+
+/* ito ang column na sinasala ngayon */
+.col-fill.on {
+    color: var(--accent3);
+    border-color: var(--accent3);
+    background: color-mix(in srgb, var(--accent3) 12%, transparent);
+}
+
+/* Ang banner ng "walang score lang" na listahan. Ang pindutan ay dapat laging
+   maabot — kahit walang lumabas na hilera — kaya nasa labas ito ng talahanayan. */
+.gs-blank-note {
+    flex-wrap: wrap;
+    border-color: var(--accent3);
+    background: color-mix(in srgb, var(--accent3) 8%, transparent);
+}
+
+.gs-blank-note i {
+    color: var(--accent3);
+}
+
+.gs-blank-note .gs-blank-clear {
+    margin-left: auto;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 999px;
+    padding: .25rem .7rem;
+    font-size: .78rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.gs-blank-note .gs-blank-clear:hover {
+    border-color: var(--accent3);
+    color: var(--accent3);
+}
+
 /* "Hide in this class" — a form column has no delete (FormFlow owns it), so
    this is its counterpart to .act-del on an activity column. */
 .frm-hide {
@@ -1800,8 +1889,28 @@ table.gs tbody td.fin-cell {
     .act-col .act-head,
     .act-col .sub,
     .act-col .sub-term,
+    .cf-row,
     table.gs thead th select,
     .act-drag {
+        display: none !important;
+    }
+
+    /* Kapag bukas ang "walang score lang" na listahan ay bahagi lang ng klase
+       ang nakalimbag — kailangang nakasulat ito sa papel, hindi lang sa screen,
+       kaya ibinabalik ito kahit nakatago ang lahat ng ibang .gs-hint. */
+    .gs-blank-note {
+        display: flex !important;
+        border: 1px solid #999 !important;
+        background: #fff !important;
+        color: #000 !important;
+    }
+
+    .gs-blank-note i,
+    .gs-blank-note b {
+        color: #000 !important;
+    }
+
+    .gs-blank-note .gs-blank-clear {
         display: none !important;
     }
     .act-print {
