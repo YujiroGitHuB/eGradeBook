@@ -100,22 +100,33 @@ body.light .sh-wrap {
     margin: 1.4rem 0 0;
 }
 
-.pd-n2 { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 70%; margin-inline: auto; }
-.pd-n1 { grid-template-columns: minmax(0, 1fr); max-width: 45%; margin-inline: auto; }
+/* Isang hanay bawat TAO sa podium; ang grupo ng tabla ay sumasakop ng kasing-
+   dami ng tao nito (pd-span-N), kaya iisang malapad na bloke ang tinatayuan
+   nila. Klase ang gamit, hindi inline style — bawal iyon sa CSP ng page. */
+.pd-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 70%; margin-inline: auto; }
+.pd-cols-1 { grid-template-columns: minmax(0, 1fr); }
+.pd-span-2 { grid-column: span 2; }
+.pd-span-3 { grid-column: span 3; }
 
 .pd-slot { --tier: var(--bronze); display: flex; flex-direction: column; min-width: 0; }
 .pd-t1 { --tier: var(--gold); }
 .pd-t2 { --tier: var(--silver); }
 
+.pd-people { display: flex; flex-wrap: wrap; justify-content: center; }
+
 .pd-person {
+    flex: 1 1 0;
+    min-width: 88px;
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
     gap: .3rem;
     padding: 0 .15rem .6rem;
-    min-width: 0;
 }
+
+/* Isang tao lang sa podium — huwag banatin ang bloke sa buong lapad. */
+.pd-solo { max-width: 45%; margin-inline: auto; }
 
 .pd-av {
     position: relative;
@@ -167,20 +178,12 @@ body.light .sh-wrap {
 
 .pd-grade small { font-size: .7rem; color: var(--muted); font-weight: 600; }
 
-.pd-tie {
-    font-size: .62rem;
-    font-weight: 700;
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    color: var(--tier);
-    border: 1px solid color-mix(in srgb, var(--tier) 50%, transparent);
-    border-radius: 999px;
-    padding: .05rem .45rem;
-}
-
 .pd-block {
-    display: grid;
-    place-items: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .25rem;
     height: 54px;
     border-radius: 12px 12px 0 0;
     border-top: 3px solid var(--tier);
@@ -201,6 +204,18 @@ body.light .sh-wrap {
 }
 
 .pd-t1 .pd-rank { font-size: 2.2rem; }
+
+.pd-tielabel {
+    font-size: .62rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--tier);
+    border: 1px solid color-mix(in srgb, var(--tier) 50%, transparent);
+    border-radius: 999px;
+    padding: .05rem .5rem;
+    white-space: nowrap;
+}
 
 /* ── Everyone else ─────────────────────────────────────────── */
 .ls-head {
@@ -273,18 +288,44 @@ body.light .sh-wrap {
 }
 
 .ls-row:hover { border-color: var(--border); }
-/* Kailangan: ang `display: flex` sa itaas ay nananaig sa [hidden] ng browser,
-   kaya hindi nawawala ang hanay kapag sinasala ng "Find your name". */
-.ls-row[hidden] { display: none; }
+
+/* Grupo ng tabla — iisang numero sa kaliwa, magkakasama ang mga pangalan,
+   may guhit sa kaliwa para kitang iisang puwesto sila. */
+.ls-tied {
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    border-left: 3px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 7%, var(--surface2));
+}
+
+/* Kailangan: ang `display: flex` ay nananaig sa [hidden] ng browser, kaya
+   hindi nawawala ang hanay kapag sinasala ng "Find your name". */
+.ls-row[hidden],
+.ls-p[hidden] { display: none; }
 
 .ls-rk {
     flex: 0 0 2rem;
-    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     font-weight: 800;
     font-size: .9rem;
     color: var(--muted);
     font-variant-numeric: tabular-nums;
+    line-height: 1.1;
 }
+
+.ls-tied .ls-rk { color: var(--accent); font-size: 1.05rem; }
+
+.ls-rk small {
+    font-size: .56rem;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+
+.ls-people { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: .35rem; }
+.ls-p { display: flex; align-items: center; gap: .65rem; min-width: 0; }
+.ls-tied .ls-p + .ls-p { padding-top: .35rem; border-top: 1px dashed var(--border); }
 
 .ls-av {
     flex: 0 0 32px;
@@ -306,15 +347,6 @@ body.light .sh-wrap {
     font-weight: 500;
     color: var(--text);
     overflow-wrap: break-word;
-}
-
-.ls-tie {
-    font-size: .62rem;
-    font-weight: 700;
-    letter-spacing: .05em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-left: .2rem;
 }
 
 .ls-grade {
@@ -417,7 +449,8 @@ body.light .sh-wrap {
     .sh-card { padding: 1rem; }
     .sh-hero h1 { font-size: 1.3rem; }
     .pd { gap: .35rem; }
-    .pd-n2, .pd-n1 { max-width: none; }
+    .pd-cols-2 { max-width: none; }
+    .pd-solo { max-width: 60%; }
     .pd-av { width: 46px; height: 46px; font-size: .85rem; }
     .pd-t1 .pd-av { width: 56px; height: 56px; font-size: 1rem; }
     .pd-name { font-size: .76rem; }

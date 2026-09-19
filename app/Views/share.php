@@ -20,19 +20,42 @@ $showGrades = !empty($share['show_grades']);
 $topN = (int)($share['top_n'] ?? 0);
 $label = (string)($share['class_label'] ?? '');
 
-/* Podium = unang tatlong hanay; ang "Everyone else" ay ang natitira. Kapag
-   Top 3 lang ang ibinahagi, walang listahan sa ibaba — hindi inuulit. */
-$podium = array_slice($rows, 0, 3);
-$rest = array_slice($rows, 3);
-/* Ayos sa screen: 2nd · 1st · 3rd, gaya ng totoong podium. Pero kapag tabla
-   ang dalawang nasa itaas, sunod-sunod na lang (kaliwa → kanan): walang
-   "gitna" sa dalawang #1, at ang alpabetikong ayos nila ang dapat mabasa. */
-$topTie = count($podium) > 1 && (int)$podium[0]['rank'] === (int)$podium[1]['rank'];
-$podiumOrder = $topTie
-    ? array_keys($podium)
-    : [3 => [1, 0, 2], 2 => [1, 0], 1 => [0], 0 => []][count($podium)];
-/* Ilan ang may parehong ranggo — para sa tatak na "Tied". */
-$rankCount = array_count_values(array_map(fn($r) => (int)$r['rank'], $rows));
+/* Pinagsasama ang magkatabla sa iisang GRUPO (iisang numero), para hindi
+   isipin ng estudyante na "tabla kami, bakit 5 ako at 6 siya". Ang podium at
+   ang listahan ay parehong gumagamit ng grupo, kaya hindi kailanman nahahati
+   ang isang tabla sa pagitan ng dalawa. */
+$groups = [];
+foreach ($rows as $r) {
+    $k = (int)$r['rank'];
+    $last = count($groups) - 1;
+    if ($last >= 0 && $groups[$last]['rank'] === $k) $groups[$last]['rows'][] = $r;
+    else $groups[] = ['rank' => $k, 'rows' => [$r]];
+}
+
+/* Podium: mga grupong ranggo 1–3, hanggang tatlong tao, buong grupo lang.
+   (1,2,3,3 → nasa podium ang 1 at 2; ang dalawang #3 ay magkasama sa listahan.)
+   Ang unang grupo ay laging nasa podium kahit higit sa tatlo ang tabla. */
+$podiumG = [];
+$podiumN = 0;
+foreach ($groups as $g) {
+    if ($g['rank'] > 3) break;
+    $c = count($g['rows']);
+    if ($podiumG && $podiumN + $c > 3) break;
+    $podiumG[] = $g;
+    $podiumN += $c;
+    if ($podiumN >= 3) break;
+}
+$restG = array_slice($groups, count($podiumG));
+$restN = array_sum(array_map(fn($g) => count($g['rows']), $restG));
+
+/* Ayos sa screen: 2nd · 1st · 3rd gaya ng totoong podium — kapag walang
+   tabla lang. Kapag may tabla, sunod-sunod (kaliwa → kanan) ang mga grupo. */
+$plain = count($podiumG) === $podiumN;
+$podiumOrder = $plain && $podiumN === 3 ? [1, 0, 2]
+    : ($plain && $podiumN === 2 ? [1, 0] : array_keys($podiumG));
+/* Lapad: bawat tao ay isang hanay; higit sa tatlo → isang buong hanay na
+   bumabalot (CSP: walang inline style, kaya klase ang gamit). */
+$podiumCols = $podiumN > 3 ? 1 : $podiumN;
 
 /* "NITOYA, R." → "RN"  ·  "Juan Dela Cruz" → "JC" */
 $initials = function (string $name): string {
@@ -134,50 +157,64 @@ $initials = function (string $name): string {
                 <?php if (!$rows): ?>
                     <p class="sh-none">No one is ranked yet.</p>
                 <?php else: ?>
-                    <!-- Podium: 2nd · 1st · 3rd. Ang taas ay ayon sa RANGGO (hindi
-                         sa puwesto), kaya ang tabla sa una ay parehong mataas. -->
-                    <ol class="pd pd-n<?= count($podium) ?>" aria-label="Top students">
-                        <?php foreach ($podiumOrder as $i): $r = $podium[$i]; $rk = (int)$r['rank']; $t = min($rk, 3); ?>
-                            <li class="pd-slot pd-t<?= $t ?>">
-                                <div class="pd-person">
-                                    <div class="pd-av" aria-hidden="true">
-                                        <span><?= $h($initials($r['name'])) ?></span>
-                                        <span class="pd-medal"><?= $MEDAL[$t - 1] ?></span>
-                                    </div>
-                                    <div class="pd-name"><?= $h($r['name']) ?></div>
-                                    <?php if ($showGrades && isset($r['grade'])): ?>
-                                        <div class="pd-grade"><?= $h($r['grade']) ?><?php if (isset($r['remark']) && $termMode): ?> <small><?= $h($r['remark']) ?></small><?php endif; ?></div>
-                                    <?php endif; ?>
-                                    <?php if ($rankCount[$rk] > 1): ?><span class="pd-tie">Tied</span><?php endif; ?>
+                    <!-- Podium — iisang bloke at iisang numero bawat grupo; ang
+                         magkatabla ay magkasamang nakatayo sa iisang bloke. -->
+                    <ol class="pd pd-cols-<?= $podiumCols ?><?= $podiumN === 1 ? ' pd-solo' : '' ?>" aria-label="Top students">
+                        <?php foreach ($podiumOrder as $gi): $g = $podiumG[$gi]; $rk = $g['rank']; $t = min($rk, 3); $n = count($g['rows']); ?>
+                            <li class="pd-slot pd-t<?= $t ?> pd-span-<?= $podiumCols === 1 ? 1 : $n ?><?= $n > 1 ? ' pd-tied' : '' ?>">
+                                <div class="pd-people">
+                                    <?php foreach ($g['rows'] as $r): ?>
+                                        <div class="pd-person">
+                                            <div class="pd-av" aria-hidden="true">
+                                                <span><?= $h($initials($r['name'])) ?></span>
+                                                <span class="pd-medal"><?= $MEDAL[$t - 1] ?></span>
+                                            </div>
+                                            <div class="pd-name"><?= $h($r['name']) ?></div>
+                                            <?php if ($showGrades && isset($r['grade'])): ?>
+                                                <div class="pd-grade"><?= $h($r['grade']) ?><?php if (isset($r['remark']) && $termMode): ?> <small><?= $h($r['remark']) ?></small><?php endif; ?></div>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endforeach; ?>
                                 </div>
-                                <div class="pd-block"><span class="pd-rank"><?= $rk ?></span></div>
+                                <div class="pd-block">
+                                    <span class="pd-rank"><?= $rk ?></span>
+                                    <?php if ($n > 1): ?><span class="pd-tielabel">Tied · <?= $n ?> students</span><?php endif; ?>
+                                </div>
                             </li>
                         <?php endforeach; ?>
                     </ol>
 
-                    <?php if ($rest): ?>
+                    <?php if ($restG): ?>
                         <div class="ls-head">
-                            <span>Everyone else <em><?= count($rest) ?></em></span>
-                            <?php if (count($rest) > 8): ?>
+                            <span>Everyone else <em><?= $restN ?></em></span>
+                            <?php if ($restN > 8): ?>
                                 <label class="ls-find">
                                     <i class="bi bi-search" aria-hidden="true"></i>
                                     <input type="search" id="lsFind" placeholder="Find your name" autocomplete="off" aria-label="Find your name">
                                 </label>
                             <?php endif; ?>
                         </div>
+                        <!-- Isang hanay bawat GRUPO: ang magkatabla ay nasa ilalim ng
+                             iisang numero, hindi magkakahiwalay na hanay. -->
                         <ol class="ls" id="lsList">
-                            <?php foreach ($rest as $r): $rk = (int)$r['rank']; ?>
-                                <li class="ls-row" data-name="<?= $h(mb_strtolower($r['name'])) ?>">
-                                    <span class="ls-rk"><?= $rk ?></span>
-                                    <span class="ls-av" aria-hidden="true"><?= $h($initials($r['name'])) ?></span>
-                                    <span class="ls-name"><?= $h($r['name']) ?><?php if ($rankCount[$rk] > 1): ?> <span class="ls-tie">tied</span><?php endif; ?></span>
-                                    <?php if ($showGrades): ?>
-                                        <span class="ls-grade"><?= $h($r['grade'] ?? '—') ?><?php if (isset($r['remark'])): ?><small class="<?= !empty($r['pass']) ? 'sh-pass' : 'sh-fail' ?>"><?= $h($r['remark']) ?></small><?php endif; ?></span>
-                                    <?php endif; ?>
+                            <?php foreach ($restG as $g): $n = count($g['rows']); ?>
+                                <li class="ls-row<?= $n > 1 ? ' ls-tied' : '' ?>">
+                                    <span class="ls-rk"><?= $g['rank'] ?><?php if ($n > 1): ?><small>tied</small><?php endif; ?></span>
+                                    <div class="ls-people">
+                                        <?php foreach ($g['rows'] as $r): ?>
+                                            <div class="ls-p" data-name="<?= $h(mb_strtolower($r['name'])) ?>">
+                                                <span class="ls-av" aria-hidden="true"><?= $h($initials($r['name'])) ?></span>
+                                                <span class="ls-name"><?= $h($r['name']) ?></span>
+                                                <?php if ($showGrades): ?>
+                                                    <span class="ls-grade"><?= $h($r['grade'] ?? '—') ?><?php if (isset($r['remark'])): ?><small class="<?= !empty($r['pass']) ? 'sh-pass' : 'sh-fail' ?>"><?= $h($r['remark']) ?></small><?php endif; ?></span>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
                                 </li>
                             <?php endforeach; ?>
                         </ol>
-                        <p class="sh-none ls-nomatch" id="lsNone" hidden>No name matches. The top three are shown above.</p>
+                        <p class="sh-none ls-nomatch" id="lsNone" hidden>No name matches. The top students are shown above.</p>
                     <?php endif; ?>
                 <?php endif; ?>
 
@@ -192,20 +229,26 @@ $initials = function (string $name): string {
                 Students with the same grade share the same rank. Grades here are not official until released by the school.</p>
         <?php endif; ?>
     </main>
-    <?php if ($share && count($rest) > 8): ?>
+    <?php if ($share && $restN > 8): ?>
         <script nonce="<?= $h($nonce) ?>">
             /* "Find your name" — sinasala lang ang listahan sa ibaba; ang
-               podium ay laging nakikita. */
+               podium ay laging nakikita. Nawawala ang isang grupo ng tabla
+               kapag wala ni isa sa kanila ang tumugma. */
             (function () {
                 var q = document.getElementById('lsFind'),
-                    rows = document.querySelectorAll('#lsList .ls-row'),
+                    groups = document.querySelectorAll('#lsList .ls-row'),
                     none = document.getElementById('lsNone');
                 q.addEventListener('input', function () {
                     var v = q.value.trim().toLowerCase(), shown = 0;
-                    rows.forEach(function (r) {
-                        var on = !v || r.getAttribute('data-name').indexOf(v) !== -1;
-                        r.hidden = !on;
-                        if (on) shown++;
+                    groups.forEach(function (g) {
+                        var any = false;
+                        g.querySelectorAll('.ls-p').forEach(function (p) {
+                            var on = !v || p.getAttribute('data-name').indexOf(v) !== -1;
+                            p.hidden = !on;
+                            if (on) any = true;
+                        });
+                        g.hidden = !any;
+                        if (any) shown++;
                     });
                     none.hidden = shown > 0;
                 });
