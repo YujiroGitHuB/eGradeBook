@@ -235,6 +235,17 @@ token and the old URL stays dead.
   uses). Porting the grade math to PHP would create a second copy that could
   drift from the first, and a live page would show students grades while the
   teacher is still encoding.
+- **Ranks use dense numbering, with no skipped numbers** (`buildRanking()` in
+  `grades.js`, used by the modal and the share link): ties share a number and
+  the next grade gets the next number, so two students tied at #1 are followed
+  by #2, not #3. The "standard" 1, 1, 3 made students ask "we only tied, so why
+  am I 3?" on a public page with no teacher there to explain. As a result,
+  **Top N counts people, not rank numbers**: `cleanRows()` keeps a row while
+  fewer than N people rank ahead of it, and the whole tie at the cutoff stays
+  in. A plain `rank <= N` would let Top 3 of 1,1,1,2,2,3,3 hold seven people.
+  `share.php` groups tied rows under one number, both on the podium (one wide
+  pedestal per tie) and in the list (one card per tie), and never splits a
+  tie between the two.
 - **Privacy is enforced server-side in `ShareRepo::cleanRows()`**, not in the
   client: with "Show grades" off the grade is never stored, Top N rows beyond
   the cutoff are never stored (ties at the cutoff are kept), "Shorten names" is

@@ -274,7 +274,6 @@ class ShareRepo
             $rank = (int)($r['rank'] ?? 0);
             $name = $this->clip((string)($r['name'] ?? ''), self::NAME_MAX);
             if ($rank < 1 || $rank > 100000 || $name === '') continue;
-            if ($topN > 0 && $rank > $topN) continue;   // ang tabla sa hangganan ay kasama
 
             $row = ['rank' => $rank, 'name' => $shortNames ? self::shortName($name) : $name];
             if ($showGrades) {
@@ -289,6 +288,28 @@ class ShareRepo
             $out[] = $row;
         }
         usort($out, fn($a, $b) => $a['rank'] <=> $b['rank']);
+
+        /* Top N ayon sa PUWESTO (ilang tao ang nauuna), hindi sa numero ng
+           ranggo: walang nilalaktawang numero ang ranggo (1, 1, 2), kaya ang
+           "rank ≤ 3" ay puwedeng pitong tao. Kasama pa rin ang buong tabla sa
+           hangganan — hindi hinahati ang magkapareho ng grado. */
+        if ($topN > 0) {
+            $kept = [];
+            $ahead = 0;          // bilang ng taong mas mataas ang ranggo
+            $curRank = null;
+            $inGroup = 0;
+            foreach ($out as $row) {
+                if ($row['rank'] !== $curRank) {
+                    $ahead += $inGroup;
+                    $curRank = $row['rank'];
+                    $inGroup = 0;
+                }
+                if ($ahead >= $topN) break;
+                $kept[] = $row;
+                $inGroup++;
+            }
+            $out = $kept;
+        }
         return $out;
     }
 

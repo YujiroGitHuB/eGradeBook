@@ -3329,12 +3329,15 @@ function buildRanking() {
     const shown = r => Number(r.val.toFixed(2));
     ranked.sort((a, b) => (shown(b) - shown(a))
         || (a.s.fullname || '').localeCompare(b.s.fullname || ''));
-    /* Pantay na grado = pantay na ranggo (1, 2, 2, 4) — nilalaktawan ang
-       nasakop na puwesto, gaya ng karaniwang ranking. */
+    /* Pantay na grado = pantay na ranggo, at WALANG nilalaktawang numero
+       (1, 1, 2 — hindi 1, 1, 3). Ang "standard" na 1, 1, 3 ay nagpapatanong sa
+       estudyante ng "tabla lang sila, bakit 3 ako?" — lalo na sa public na
+       share link, kung saan walang gurong nandoon para magpaliwanag. Ang bilang
+       ay puwesto ayon sa GRADO, hindi bilang ng taong nauna. */
     let rank = 0, prev = null;
-    ranked.forEach((r, i) => {
+    ranked.forEach(r => {
         const k = r.val.toFixed(2);
-        if (k !== prev) { rank = i + 1; prev = k; }
+        if (k !== prev) { rank++; prev = k; }
         r.rank = rank;
     });
     return { ranked, unranked };

@@ -226,7 +226,8 @@ $initials = function (string $name): string {
                 </footer>
             </section>
             <p class="sh-disclaimer">A snapshot shared by your teacher — it does not update by itself.
-                Students with the same grade share the same rank. Grades here are not official until released by the school.</p>
+                Students with the same grade share the same number, and the next number is not skipped (1, 1, 2).
+                Grades here are not official until released by the school.</p>
         <?php endif; ?>
     </main>
     <?php if ($share && $restN > 8): ?>
