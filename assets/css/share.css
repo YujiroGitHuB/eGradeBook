@@ -156,6 +156,44 @@
     line-height: 1.5;
 }
 
+/* Teacher link — pagpili ng section */
+.sh-card + .sh-card { margin-top: .9rem; }
+.sh-picker .sh-head { margin-bottom: .8rem; }
+
+.sh-chips { display: flex; flex-wrap: wrap; gap: .45rem; }
+
+.sh-chip {
+    display: inline-flex;
+    flex-direction: column;
+    min-width: 0;
+    max-width: 100%;
+    padding: .45rem .75rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface2);
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: .88rem;
+    line-height: 1.25;
+}
+
+.sh-chip small {
+    font-weight: 400;
+    font-size: .7rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
+.sh-chip:hover { border-color: var(--accent); }
+
+.sh-chip.is-active {
+    border-color: var(--accent3);
+    background: color-mix(in srgb, var(--accent3) 12%, transparent);
+}
+
+.sh-gone { margin-top: .7rem; font-size: .8rem; }
+
 .sh-empty { text-align: center; padding: 2rem 1.25rem; }
 .sh-empty .sh-empty-ic { margin: 0 auto .8rem; }
 .sh-empty h1 { font-size: 1.1rem; color: var(--text); margin-bottom: .4rem; }

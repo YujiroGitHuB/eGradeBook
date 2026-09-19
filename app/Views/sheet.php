@@ -872,6 +872,27 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
                 <div class="rk-note"><i class="bi bi-info-circle"></i>
                     <span>Anyone with the link can see it — no login needed. It is a <b>snapshot</b>: after changing scores,
                         press <b>Update link</b> (the address stays the same). Student numbers and anyone marked INC/DRP/W or not yet graded are never shown.</span></div>
+
+                <!-- Isang link para sa lahat ng section (teacher link) -->
+                <div class="sh-all">
+                    <div class="sh-all-head"><i class="bi bi-collection"></i> All sections — one link</div>
+                    <p class="sh-all-sub">Send one address to every section; each student picks their own section.
+                        Anyone with it can see <b>every</b> section that is shared.</p>
+                    <div id="shHubBox" class="sh-linkbox" style="display:none;">
+                        <div class="sh-linkrow">
+                            <input id="shHubUrl" class="gs-input" readonly aria-label="Teacher link">
+                            <button type="button" class="btn btn-primary btn-sm" id="shHubCopy"><i class="bi bi-clipboard"></i> Copy</button>
+                            <a class="btn btn-ghost btn-sm" id="shHubOpen" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right"></i> Open</a>
+                        </div>
+                        <p class="sh-linkmeta" id="shHubMeta"></p>
+                    </div>
+                    <div class="sh-all-actions">
+                        <button type="button" class="btn btn-ghost btn-sm" id="shHubCreate"><i class="bi bi-link-45deg"></i> Create teacher link</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="shUpdateAll" title="Create or update the link of every class this semester, with the options above"><i class="bi bi-arrow-repeat"></i> Update all sections</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="shCopyAll" title="One line per section, ready to paste into each group chat"><i class="bi bi-list-ul"></i> Copy all links</button>
+                        <button type="button" class="btn btn-danger-ghost btn-sm" id="shHubRevoke" style="display:none;"><i class="bi bi-slash-circle"></i> Turn off teacher link</button>
+                    </div>
+                </div>
             </div>
             <div class="modal-actions" style="margin-top:1.3rem;">
                 <button class="btn btn-danger-ghost btn-sm" id="shRevoke" style="display:none;margin-right:auto;" title="The link stops working right away"><i class="bi bi-slash-circle"></i> Turn off link</button>

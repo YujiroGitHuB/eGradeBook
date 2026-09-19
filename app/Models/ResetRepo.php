@@ -44,6 +44,7 @@ class ResetRepo
         /* Kasama: ang malinis na gradebook ay hindi dapat mag-iwan ng public
            link na nagpapakita pa rin ng lumang ranking. */
         'grade_share_links'     => 'shared ranking links',
+        'grade_share_hub'       => 'teacher share link',
     ];
 
     /* SADYANG WALA RITO ang `grade_transmute`. Hindi iyon gradebook — isa

@@ -457,6 +457,17 @@ class Schema
             UNIQUE KEY uq_token (token),
             UNIQUE KEY uq_class (owner_id, section, school_year, semester, subject)
         )");
+
+        /* Teacher link — IISANG link para sa lahat ng section ng guro
+           (share.php?h=…). Walang sariling laman: ipinapakita lang nito ang mga
+           buhay na grade_share_links ng guro, kaya ang pag-off ng isang section
+           doon ay nag-aalis din dito. Isa kada guro, walang class scope. */
+        $conn->query("CREATE TABLE IF NOT EXISTS grade_share_hub (
+            owner_id   INT      NOT NULL PRIMARY KEY,
+            token      CHAR(32) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_token (token)
+        )");
     }
 
     /* Is $col part of the named index ($index; use 'PRIMARY' for the primary

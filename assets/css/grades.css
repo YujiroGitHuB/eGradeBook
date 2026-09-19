@@ -2381,6 +2381,20 @@ table.gs tbody td.fin-cell {
    na magpapalapad sa modal nang lampas sa screen ng telepono. */
 .sh-opts .gs-field select { min-width: 0; width: 100%; }
 
+.sh-all {
+    border-top: 1px solid var(--border);
+    padding-top: .8rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+}
+
+.sh-all-head { font-size: .85rem; font-weight: 700; color: var(--text); }
+.sh-all-head i { color: var(--accent2); margin-right: .25rem; }
+.sh-all-sub { font-size: .75rem; color: var(--muted); }
+.sh-all-sub b { color: var(--text); }
+.sh-all-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+
 @media (max-width: 480px) {
     .sh-opts { grid-template-columns: 1fr; }
     .sh-linkrow { flex-wrap: wrap; }

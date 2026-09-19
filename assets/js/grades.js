@@ -3478,12 +3478,174 @@ async function openShare() {
     $('shSave').disabled = true;   // hanggang malaman kung Create o Update
     $('shareModal').classList.add('show');
 
-    const d = await apiGet({ api: 'share_ranking_get', section: SHEET.section });
+    SHARE_OV = null;
+    renderShareHub();
+    const [d] = await Promise.all([
+        apiGet({ api: 'share_ranking_get', section: SHEET.section }),
+        loadShareOverview(),
+    ]);
     $('shSave').disabled = false;
     if (!d.success) { showToastSafe(d.message || 'Could not load the share link.', 'error'); return; }
     SHARE_LINK = d.link || null;
     shareSetControls(SHARE_LINK);
     renderShareState();
+}
+
+/* ── All sections: teacher link, Update all, Copy all ─────────
+   Ang teacher link (share.php?h=…) ay walang sariling laman — ipinapakita nito
+   ang mga buhay na link ng bawat klase, at pumipili ang estudyante ng section.
+   Kaya ang "Update all" ang tunay na nagpupuno rito. */
+let SHARE_OV = null;   // { links: [...], hub: token|null, classes: [...] } mula sa share_overview
+
+const hubUrl = token => new URL('share.php?h=' + encodeURIComponent(token), location.href).href;
+const shareLive = () => (SHARE_OV ? SHARE_OV.links.filter(l => !l.expired) : []);
+
+async function loadShareOverview() {
+    const d = await apiGet({ api: 'share_overview' });
+    SHARE_OV = d && d.success ? { links: d.links || [], hub: d.hub || null, classes: d.classes || [] } : null;
+    renderShareHub();
+}
+
+function renderShareHub() {
+    const ov = SHARE_OV;
+    const hub = ov && ov.hub;
+    $('shHubBox').style.display = hub ? '' : 'none';
+    $('shHubCreate').style.display = hub ? 'none' : '';
+    $('shHubRevoke').style.display = hub ? '' : 'none';
+    $('shHubCreate').disabled = !ov;
+    $('shCopyAll').disabled = !shareLive().length;
+    const n = ov ? ov.classes.length : 0;
+    $('shUpdateAll').disabled = !n;
+    $('shUpdateAll').innerHTML = `<i class="bi bi-arrow-repeat"></i> Update all sections${n ? ` (${n})` : ''}`;
+    if (!hub) return;
+    const url = hubUrl(hub);
+    $('shHubUrl').value = url;
+    $('shHubOpen').href = url;
+    const live = shareLive().length;
+    $('shHubMeta').textContent = live
+        ? `Shows ${live} shared section${live === 1 ? '' : 's'}. Turning off a section's link removes it here too.`
+        : 'No section is shared yet — press Update all sections.';
+}
+
+async function createShareHub() {
+    const d = await apiPost({ api: 'share_hub_create' });
+    if (!d.success) { showToastSafe(d.message || 'Could not create the teacher link.', 'error'); return; }
+    if (SHARE_OV) SHARE_OV.hub = d.hub;
+    renderShareHub();
+    showToastSafe(shareLive().length ? 'Teacher link created — send it to all your sections.'
+        : 'Teacher link created. Press Update all sections so it has something to show.', 'success');
+}
+
+async function revokeShareHub() {
+    const ok = await uiConfirm({
+        title: 'Turn off the teacher link?',
+        message: `The single link for all sections will stop working. Each section's own link keeps working —
+                  turn those off one by one if you want them gone too.`,
+        ok: 'Turn off teacher link',
+        icon: 'bi-slash-circle',
+        danger: true,
+    });
+    if (!ok) return;
+    const d = await apiPost({ api: 'share_hub_revoke' });
+    if (!d.success) { showToastSafe(d.message || 'Could not turn off the teacher link.', 'error'); return; }
+    if (SHARE_OV) SHARE_OV.hub = null;
+    renderShareHub();
+    showToastSafe('Teacher link turned off.', 'success');
+}
+
+/* Iniikot ang bawat klase ng kasalukuyang school year + semester (galing sa
+   server, hindi sa bawat section × kasalukuyang subject — magkaiba ang subject
+   kada section). Parehong paraan ng Export all: ipinapalit sandali ang SHEET at
+   selectedCols para gumana ang grade helpers, tapos ibinabalik. */
+async function updateAllShares() {
+    const classes = SHARE_OV ? SHARE_OV.classes : [];
+    if (!classes.length) return;
+    const term = [CLASS.school_year, CLASS.semester].filter(Boolean).join(' · ') || 'untagged sheets';
+    const ok = await uiConfirm({
+        title: `Update ${classes.length} section${classes.length === 1 ? '' : 's'}?`,
+        message: `Creates or updates the link of every class in <b>${escHtml(term)}</b>, using the options above
+                  (${$('shGrades').checked ? '<b>grades shown</b>' : 'name and rank only'}).
+                  Sections where no one is graded yet are skipped.`,
+        ok: 'Update all',
+        icon: 'bi-arrow-repeat',
+    });
+    if (!ok) return;
+
+    const btn = $('shUpdateAll');
+    btn.disabled = true;
+    const savedSheet = SHEET, savedSel = selectedCols;
+    const pass = clampPct(parseFloat($('numPass').value) || 0);
+    const opts = {
+        show_grades: $('shGrades').checked ? 1 : 0,
+        short_names: $('shShort').checked ? 1 : 0,
+        top_n: $('shTop').value,
+        expire_days: $('shExpire').value,
+    };
+    let done = 0, skipped = 0, failed = 0;
+    try {
+        for (const [i, c] of classes.entries()) {
+            btn.innerHTML = `<i class="bi bi-hourglass-split"></i> Updating ${i + 1}/${classes.length}…`;
+            const scope = { section: c.section, school_year: c.school_year, semester: c.semester, subject: c.subject };
+            const d = await apiGet({ api: 'sheet', ...scope });
+            if (!d || !d.success) { failed++; continue; }
+
+            SHEET = d;
+            selectedCols = new Set(d.columns.filter(col => col.type === 'activity' || col.responded > 0).map(col => col.key));
+            if (selectedCols.size === 0) d.columns.forEach(col => selectedCols.add(col.key));
+
+            const termMode = d.term_mode === true;
+            const { ranked } = buildRanking();
+            if (!ranked.length) { skipped++; continue; }
+            const rows = ranked.map(r => ({ rank: r.rank, name: r.s.fullname || '', ...rankCells(r, termMode, pass) }));
+            const s = await apiPost({
+                api: 'share_ranking_save', ...scope, ...opts,
+                class_label: [c.school_year, c.semester, c.subject].filter(Boolean).join(' · '),
+                term_mode: termMode ? 1 : 0,
+                rows: JSON.stringify(rows),
+            });
+            if (s && s.success) done++; else failed++;
+        }
+    } finally {
+        SHEET = savedSheet; selectedCols = savedSel;   // ibalik ang live view
+    }
+
+    await loadShareOverview();
+    /* Kasama ang kasalukuyang klase sa mga na-update — i-refresh ang itaas. */
+    const cur = await apiGet({ api: 'share_ranking_get', section: SHEET.section });
+    if (cur && cur.success) { SHARE_LINK = cur.link || null; renderShareState(); }
+
+    const parts = [`${done} updated`];
+    if (skipped) parts.push(`${skipped} skipped (no one graded yet)`);
+    if (failed) parts.push(`${failed} failed`);
+    showToastSafe(parts.join(' · '), failed ? 'error' : 'success');
+}
+
+async function copyAllShareLinks() {
+    const live = shareLive();
+    if (!live.length) return;
+    const text = live.map(l => {
+        const label = [l.school_year, l.semester, l.subject].filter(Boolean).join(' · ');
+        return `${l.section}${label ? ` (${label})` : ''}: ${shareUrl(l.token)}`;
+    }).join('\n');
+    await copyText(text, null);
+    showToastSafe(`Copied ${live.length} link${live.length === 1 ? '' : 's'} — one line per section.`, 'success');
+}
+
+/* Clipboard, may fallback para sa http:// na hindi localhost (walang Clipboard
+   API doon). Kung may input, pinipili ang laman nito para Ctrl+C na lang. */
+async function copyText(text, input) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch (e) {
+        const el = input || Object.assign(document.createElement('textarea'), { value: text });
+        if (!input) { el.style.position = 'fixed'; el.style.opacity = '0'; document.body.appendChild(el); }
+        el.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (e2) { /* nakapili na, sapat na */ }
+        if (!input) el.remove();
+        return ok;
+    }
 }
 
 function closeShare() { $('shareModal').classList.remove('show'); }
@@ -3516,20 +3678,14 @@ async function saveShare() {
     const wasNew = !SHARE_LINK;
     SHARE_LINK = d.link || null;
     renderShareState();
+    loadShareOverview();   // bilang ng section sa teacher link / Copy all
     showToastSafe(wasNew ? 'Link created — copy it and send it to your class.' : 'Link updated — same address, new ranking.', 'success');
 }
 
-async function copyShareUrl() {
-    const url = $('shUrl').value;
+async function copyShareUrl(inputId) {
+    const url = $(inputId).value;
     if (!url) return;
-    try {
-        await navigator.clipboard.writeText(url);
-    } catch (e) {
-        /* Walang Clipboard API sa http:// na hindi localhost — piliin na lang
-           ang teksto para Ctrl+C ang gawin ng guro. */
-        $('shUrl').select();
-        try { document.execCommand('copy'); } catch (e2) { /* nakapili na, sapat na */ }
-    }
+    await copyText(url, $(inputId));
     showToastSafe('Link copied.', 'success');
 }
 
@@ -3547,6 +3703,7 @@ async function revokeShare() {
     if (!d.success) { showToastSafe(d.message || 'Could not turn off the link.', 'error'); return; }
     SHARE_LINK = null;
     renderShareState();
+    loadShareOverview();
     showToastSafe('Link turned off.', 'success');
 }
 
@@ -4275,7 +4432,12 @@ document.addEventListener('keydown', e => {
 $('rkShareBtn').addEventListener('click', openShare);
 $('shBack').addEventListener('click', () => { closeShare(); openRanking(); });
 $('shSave').addEventListener('click', saveShare);
-$('shCopy').addEventListener('click', copyShareUrl);
+$('shCopy').addEventListener('click', () => copyShareUrl('shUrl'));
+$('shHubCopy').addEventListener('click', () => copyShareUrl('shHubUrl'));
+$('shHubCreate').addEventListener('click', createShareHub);
+$('shHubRevoke').addEventListener('click', revokeShareHub);
+$('shUpdateAll').addEventListener('click', updateAllShares);
+$('shCopyAll').addEventListener('click', copyAllShareLinks);
 $('shRevoke').addEventListener('click', revokeShare);
 $('shareModal').addEventListener('click', e => {
     if (e.target === $('shareModal')) closeShare();

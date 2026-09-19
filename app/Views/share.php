@@ -3,6 +3,7 @@
 /* ============================================================
    app/Views/share.php — public na Class ranking (walang login).
    In scope: $share (payload mula sa ShareRepo::findPublic, o null),
+   $hub (null, o ang mga section ng teacher link), $hubToken, $activeToken,
    $unavailable (DB error), $nonce (para sa CSP), APP_ROOT.
 
    Lahat ng teksto ay galing sa database at dumaan sa h() — walang
@@ -26,7 +27,7 @@ $sub = $share ? implode(' · ', array_filter([(string)($share['section'] ?? ''),
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
-    <title><?= $share ? 'Class ranking · ' . $h($share['section'] ?? '') : 'Link unavailable' ?> — eGradeBook</title>
+    <title><?= $share ? 'Class ranking · ' . $h($share['section'] ?? '') : ($hub !== null ? 'Class rankings' : 'Link unavailable') ?> — eGradeBook</title>
     <?php include APP_ROOT . "/components/favico.php" ?>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="assets/css/global.css?v=<?= filemtime(APP_ROOT . '/assets/css/global.css') ?>">
@@ -51,7 +52,36 @@ $sub = $share ? implode(' · ', array_filter([(string)($share['section'] ?? ''),
             <span>eGradeBook</span>
         </div>
 
-        <?php if (!$share): ?>
+        <?php if ($hub !== null): ?>
+            <!-- Teacher link: pipili ang estudyante ng sariling section -->
+            <section class="sh-card sh-picker">
+                <header class="sh-head">
+                    <div class="sh-head-ic"><i class="bi bi-people"></i></div>
+                    <div>
+                        <h1>Class rankings</h1>
+                        <p class="sh-sub"><?= $hub ? 'Pick your section.' : 'No rankings are shared right now. Check back later.' ?></p>
+                    </div>
+                </header>
+                <?php if ($hub): ?>
+                    <nav class="sh-chips" aria-label="Sections">
+                        <?php foreach ($hub as $x): $on = $x['token'] === $activeToken; ?>
+                            <a class="sh-chip<?= $on ? ' is-active' : '' ?>"<?= $on ? ' aria-current="page"' : '' ?>
+                                href="share.php?h=<?= $h($hubToken) ?>&amp;c=<?= $h($x['token']) ?>">
+                                <span><?= $h($x['section']) ?></span>
+                                <?php if ($x['label'] !== ''): ?><small><?= $h($x['label']) ?></small><?php endif; ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </nav>
+                    <?php if (!$share && ($_GET['c'] ?? '') !== ''): ?>
+                        <p class="sh-none sh-gone">That section's ranking is no longer shared — pick another one above.</p>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </section>
+        <?php endif; ?>
+
+        <?php if (!$share && $hub !== null): ?>
+            <?php /* teacher link na wala pang napiling section — ang picker na lang */ ?>
+        <?php elseif (!$share): ?>
             <section class="sh-card sh-empty">
                 <div class="sh-empty-ic"><i class="bi bi-link-45deg"></i></div>
                 <?php if ($unavailable): ?>

@@ -55,6 +55,31 @@ class ShareController extends Controller
         }
     }
 
+    /* Lahat ng link ng guro + ang teacher link + ang mga klase ng kasalukuyang
+       school year/semester (para sa "Update all sections"). Iisang tawag para
+       sa buong "All sections" na bahagi ng modal. */
+    public function overview(): void
+    {
+        $c = $this->classScope();
+        $repo = new ShareRepo($this->db, $this->ownerId);
+        $this->ok([
+            'links'   => $repo->listAll(),
+            'hub'     => $repo->hubToken(),
+            'classes' => $repo->classesInTerm($c->schoolYear, $c->semester),
+        ]);
+    }
+
+    public function createHub(): void
+    {
+        $this->ok(['hub' => (new ShareRepo($this->db, $this->ownerId))->createHub()]);
+    }
+
+    public function revokeHub(): void
+    {
+        (new ShareRepo($this->db, $this->ownerId))->revokeHub();
+        $this->ok();
+    }
+
     public function revoke(): void
     {
         $c = $this->classScope();

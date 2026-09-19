@@ -91,6 +91,9 @@ class Router
         'share_ranking_get'     => [ShareController::class, 'status'],
         'share_ranking_save'    => [ShareController::class, 'save'],
         'share_ranking_revoke'  => [ShareController::class, 'revoke'],
+        'share_overview'        => [ShareController::class, 'overview'],
+        'share_hub_create'      => [ShareController::class, 'createHub'],
+        'share_hub_revoke'      => [ShareController::class, 'revokeHub'],
     ];
 
     private Database $db;

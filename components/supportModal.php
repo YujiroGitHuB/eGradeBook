@@ -177,6 +177,7 @@
         '<div class="sm-release" data-v="2026-09-19"><span class="sm-date">September 19, 2026</span>' +
         '<ul>' +
           '<li><strong>Share the class ranking with a link.</strong> In Class ranking, press <strong>Share link…</strong> to make a page your students can open without logging in. You choose what they see: name and rank only (the default) or grades too, full or shortened names, and everyone or just the Top 10 / Top 3. Student numbers and anyone marked INC/DRP/W or not yet graded are never shown. The link is a snapshot, so press <strong>Update link</strong> after changing scores; the address stays the same. Links expire after 7 or 30 days, or you can keep one until you press <strong>Turn off link</strong>. Before sharing names with grades, check your school\'s data privacy policy.</li>' +
+          '<li><strong>One link for all your sections.</strong> In the same window, <strong>Create teacher link</strong> gives you one address to send to every section. Each student picks their own section from it. Note that anyone with it can see every section you have shared. <strong>Update all sections</strong> creates or refreshes the link of every class this semester in one go, and <strong>Copy all links</strong> copies one line per section if you would rather send each class only its own ranking.</li>' +
         '</ul></div>' +
 
         '<div class="sm-release" data-v="2026-09-16"><span class="sm-date">September 16, 2026</span>' +

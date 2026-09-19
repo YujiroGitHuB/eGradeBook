@@ -133,6 +133,115 @@ class ShareRepo
         return $n > 0;
     }
 
+    /* Lahat ng link ng guro (kasama ang nag-expire, may bandila) — para sa
+       "Copy all links" at sa listahan sa Share modal. */
+    public function listAll(): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT token, section, school_year, semester, subject, expires_at, updated_at,
+                    (expires_at IS NOT NULL AND expires_at <= NOW()) AS expired
+               FROM grade_share_links WHERE owner_id=?
+              ORDER BY school_year DESC, semester, section, subject"
+        );
+        $stmt->bind_param('i', $this->ownerId);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $out = [];
+        while ($r = $res->fetch_assoc()) {
+            $r['expired'] = (int)$r['expired'] === 1;
+            $out[] = $r;
+        }
+        $stmt->close();
+        return $out;
+    }
+
+    /* Ang mga klaseng may laman sa isang school year + semester — ang iniikot
+       ng "Update all sections". Galing sa grade_activities, HINDI sa bawat
+       section × kasalukuyang subject: magkaiba ang subject kada section, at
+       ang pagbukas ng sheet ng klaseng wala ay nagre-register ng basurang
+       klase (tingnan ang SheetController::sheet). */
+    public function classesInTerm(string $sy, string $sem): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT section, school_year, semester, subject FROM grade_activities
+              WHERE owner_id=? AND school_year=? AND semester=?
+              ORDER BY section, subject"
+        );
+        $stmt->bind_param('iss', $this->ownerId, $sy, $sem);
+        $stmt->execute();
+        $out = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        return $out;
+    }
+
+    /* ── Teacher link (grade_share_hub) — isang link para sa lahat ── */
+
+    public function hubToken(): ?string
+    {
+        $stmt = $this->db->prepare("SELECT token FROM grade_share_hub WHERE owner_id=?");
+        $stmt->bind_param('i', $this->ownerId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row ? (string)$row['token'] : null;
+    }
+
+    /* Idempotent: ang dati nang token ang ibinabalik kung mayroon na. */
+    public function createHub(): string
+    {
+        $existing = $this->hubToken();
+        if ($existing !== null) return $existing;
+        $token = bin2hex(random_bytes(16));
+        $stmt = $this->db->prepare("INSERT IGNORE INTO grade_share_hub (owner_id, token) VALUES (?, ?)");
+        $stmt->bind_param('is', $this->ownerId, $token);
+        $stmt->execute();
+        $stmt->close();
+        return $this->hubToken() ?? $token;   // kung may sabay na request, ang nanalo
+    }
+
+    public function revokeHub(): void
+    {
+        $stmt = $this->db->prepare("DELETE FROM grade_share_hub WHERE owner_id=?");
+        $stmt->bind_param('i', $this->ownerId);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    /* Para sa share.php?h=…: ang BUHAY na mga link ng may-ari ng teacher link
+       ([token, section, label]), o null kung walang ganitong teacher link.
+       Ang label ay mula sa scope column — hindi na kailangang basahin ang
+       bawat payload para lang sa pangalan ng chip. */
+    public static function hubList(Database $db, string $hubToken): ?array
+    {
+        if (!preg_match('/^[a-f0-9]{32}$/', $hubToken)) return null;
+        $stmt = $db->prepare("SELECT owner_id FROM grade_share_hub WHERE token=?");
+        $stmt->bind_param('s', $hubToken);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) return null;
+        $owner = (int)$row['owner_id'];
+
+        $stmt = $db->prepare(
+            "SELECT token, section, school_year, semester, subject FROM grade_share_links
+              WHERE owner_id=? AND (expires_at IS NULL OR expires_at > NOW())
+              ORDER BY school_year DESC, semester, section, subject"
+        );
+        $stmt->bind_param('i', $owner);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $out = [];
+        while ($r = $res->fetch_assoc()) {
+            $out[] = [
+                'token'   => (string)$r['token'],
+                'section' => (string)$r['section'],
+                'label'   => implode(' · ', array_filter([$r['school_year'], $r['semester'], $r['subject']], 'strlen')),
+            ];
+        }
+        $stmt->close();
+        return $out;
+    }
+
     /* Para sa share.php (walang login, walang owner): ang payload ng isang
        buhay na token, o null kung wala, na-revoke, o nag-expire. */
     public static function findPublic(Database $db, string $token): ?array

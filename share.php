@@ -31,23 +31,45 @@ header("Content-Security-Policy: default-src 'none'; img-src 'self'; "
     . "font-src https://fonts.gstatic.com https://cdn.jsdelivr.net; "
     . "script-src 'nonce-{$nonce}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
 
+/* Dalawang anyo:
+     ?t=<token>            — isang klase (ang link ng isang section)
+     ?h=<hub>[&c=<token>]  — teacher link: pipili ang estudyante ng section;
+                             ang c ay tinatanggap LANG kung kabilang sa hub na
+                             iyon, kaya hindi ito nagagamit para silipin ang
+                             link ng ibang guro. */
 $token = (string)($_GET['t'] ?? '');
+$hubToken = (string)($_GET['h'] ?? '');
 $share = null;
+$hub = null;          // null = hindi teacher link; array = mga section na mapipili
+$activeToken = '';
 $unavailable = false;
 
-if (preg_match('/^[a-f0-9]{32}$/', $token)) {
-    try {
+try {
+    if (preg_match('/^[a-f0-9]{32}$/', $hubToken)) {
+        $db = new Database();
+        $hub = ShareRepo::hubList($db, $hubToken);
+        if ($hub !== null) {
+            $want = (string)($_GET['c'] ?? '');
+            /* Iisang section lang → buksan na agad; walang saysay ang pumili. */
+            if ($want === '' && count($hub) === 1) $want = $hub[0]['token'];
+            if (in_array($want, array_column($hub, 'token'), true)) {
+                $share = ShareRepo::findPublic($db, $want);
+                if ($share) $activeToken = $want;
+            }
+        }
+        $db->close();
+    } elseif (preg_match('/^[a-f0-9]{32}$/', $token)) {
         $db = new Database();
         $share = ShareRepo::findPublic($db, $token);
         $db->close();
-    } catch (\Throwable $e) {
-        error_log('eGradeBook share.php failed: ' . $e);
-        $unavailable = true;
     }
+} catch (\Throwable $e) {
+    error_log('eGradeBook share.php failed: ' . $e);
+    $unavailable = true;
 }
 
 /* Iisang sagot para sa "walang ganitong link", "na-revoke", at "nag-expire":
    hindi dapat malaman ng nanghuhula kung alin sa tatlo. */
-if (!$share) http_response_code($unavailable ? 503 : 404);
+if (!$share && $hub === null) http_response_code($unavailable ? 503 : 404);
 
 require APP_ROOT . '/app/Views/share.php';

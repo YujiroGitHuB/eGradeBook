@@ -247,9 +247,25 @@ token and the old URL stays dead.
   guessing tokens cannot tell those cases apart. All output goes through `h()`.
   Styles are in `assets/css/share.css`, kept separate so the public page does
   not load `grades.css`.
+- **Teacher link** (`share.php?h=<token>`, `grade_share_hub`, one row per
+  teacher, not class-scoped): one address for every section. It has **no
+  content of its own**. It lists the owner's *live* class links as section
+  chips, and `&c=<class token>` is honoured **only if that token is in the
+  hub's own list**, so a hub cannot be used to open another teacher's link.
+  Turning off a class link removes it from the hub as well. Anyone holding the
+  hub can see every shared section, and the modal says so. Actions:
+  `share_overview` (all links + hub + this term's classes), `share_hub_create`
+  (idempotent) and `share_hub_revoke`. **Update all sections** walks
+  `ShareRepo::classesInTerm()`, meaning the `(section, subject)` pairs in
+  `grade_activities` for the current school year and semester, **not**
+  `my_sections` × the current subject. Subjects differ per section, and opening
+  the `sheet` of a class that does not exist would register a junk class. The
+  walk swaps `SHEET` / `selectedCols` the same way Export all does. **Copy all
+  links** puts one `section (label): url` line per live link on the clipboard.
 - The table is in `ClassRepo::SETUP_TABLES` (it moves with `retag_class`, and
   `delete_class` clears it) and in `ResetRepo::OWNED_TABLES`, so neither
   deleting a class nor running Clear all leaves a live public link behind.
+  `grade_share_hub` is in `OWNED_TABLES` too.
 
 ## Class scoping (school year / semester / subject)
 
