@@ -18,7 +18,35 @@ $rows = $share['rows'] ?? [];
 $termMode = !empty($share['term_mode']);
 $showGrades = !empty($share['show_grades']);
 $topN = (int)($share['top_n'] ?? 0);
-$sub = $share ? implode(' · ', array_filter([(string)($share['section'] ?? ''), (string)($share['class_label'] ?? '')])) : '';
+$label = (string)($share['class_label'] ?? '');
+
+/* Podium = unang tatlong hanay; ang "Everyone else" ay ang natitira. Kapag
+   Top 3 lang ang ibinahagi, walang listahan sa ibaba — hindi inuulit. */
+$podium = array_slice($rows, 0, 3);
+$rest = array_slice($rows, 3);
+/* Ayos sa screen: 2nd · 1st · 3rd, gaya ng totoong podium. Pero kapag tabla
+   ang dalawang nasa itaas, sunod-sunod na lang (kaliwa → kanan): walang
+   "gitna" sa dalawang #1, at ang alpabetikong ayos nila ang dapat mabasa. */
+$topTie = count($podium) > 1 && (int)$podium[0]['rank'] === (int)$podium[1]['rank'];
+$podiumOrder = $topTie
+    ? array_keys($podium)
+    : [3 => [1, 0, 2], 2 => [1, 0], 1 => [0], 0 => []][count($podium)];
+/* Ilan ang may parehong ranggo — para sa tatak na "Tied". */
+$rankCount = array_count_values(array_map(fn($r) => (int)$r['rank'], $rows));
+
+/* "NITOYA, R." → "RN"  ·  "Juan Dela Cruz" → "JC" */
+$initials = function (string $name): string {
+    if (strpos($name, ',') !== false) {
+        [$last, $first] = array_map('trim', explode(',', $name, 2));
+        $parts = [$first, $last];
+    } else {
+        $w = preg_split('/\s+/u', trim($name)) ?: [];
+        $parts = [$w[0] ?? '', count($w) > 1 ? end($w) : ''];
+    }
+    $out = '';
+    foreach ($parts as $p) if ($p !== '') $out .= mb_strtoupper(mb_substr($p, 0, 1));
+    return $out !== '' ? $out : '?';
+};
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -93,58 +121,64 @@ $sub = $share ? implode(' · ', array_filter([(string)($share['section'] ?? ''),
                 <?php endif; ?>
             </section>
         <?php else: ?>
-            <section class="sh-card">
-                <header class="sh-head">
-                    <div class="sh-head-ic"><i class="bi bi-trophy"></i></div>
-                    <div>
-                        <h1>Class ranking<?= $topN > 0 ? ' · Top ' . $topN : '' ?></h1>
-                        <?php if ($sub !== ''): ?><p class="sh-sub"><?= $h($sub) ?></p><?php endif; ?>
+            <section class="sh-card sh-rank">
+                <header class="sh-hero">
+                    <div class="sh-hero-ic"><i class="bi bi-trophy-fill"></i></div>
+                    <div class="sh-hero-txt">
+                        <p class="sh-eyebrow">Class ranking<?= $topN > 0 ? ' · Top ' . $topN : '' ?></p>
+                        <h1><?= $h($share['section'] ?? '') ?></h1>
+                        <?php if ($label !== ''): ?><p class="sh-sub"><?= $h($label) ?></p><?php endif; ?>
                     </div>
                 </header>
 
                 <?php if (!$rows): ?>
                     <p class="sh-none">No one is ranked yet.</p>
                 <?php else: ?>
-                    <div class="sh-podium">
-                        <?php foreach (array_slice($rows, 0, 3) as $r): $m = min((int)$r['rank'], 3); ?>
-                            <div class="sh-pod sh-pod-<?= $m ?>">
-                                <div class="sh-medal"><?= $MEDAL[$m - 1] ?></div>
-                                <div class="sh-pod-name"><?= $h($r['name']) ?></div>
-                                <?php if ($showGrades && isset($r['grade'])): ?>
-                                    <div class="sh-pod-val"><?= $h($r['grade']) ?></div>
-                                <?php endif; ?>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-
-                    <table class="sh-table">
-                        <thead>
-                            <tr>
-                                <th class="sh-c-rank">#</th>
-                                <th>Student</th>
-                                <?php if ($showGrades): ?>
-                                    <th class="sh-c-num"><?= $termMode ? 'General Ave' : 'Grade' ?></th>
-                                    <th class="sh-c-num"><?= $termMode ? 'Equivalent' : 'Remark' ?></th>
-                                <?php endif; ?>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($rows as $r): $rk = (int)$r['rank']; ?>
-                                <tr<?= $rk <= 3 ? ' class="sh-top"' : '' ?>>
-                                    <td class="sh-c-rank"><?= $rk <= 3 ? $MEDAL[$rk - 1] : $rk ?></td>
-                                    <td class="sh-name"><?= $h($r['name']) ?></td>
-                                    <?php if ($showGrades): ?>
-                                        <td class="sh-c-num sh-val"><?= $h($r['grade'] ?? '—') ?></td>
-                                        <td class="sh-c-num">
-                                            <?php if (isset($r['remark'])): ?>
-                                                <span class="<?= !empty($r['pass']) ? 'sh-pass' : 'sh-fail' ?>"><?= $h($r['remark']) ?></span>
-                                            <?php else: ?>—<?php endif; ?>
-                                        </td>
+                    <!-- Podium: 2nd · 1st · 3rd. Ang taas ay ayon sa RANGGO (hindi
+                         sa puwesto), kaya ang tabla sa una ay parehong mataas. -->
+                    <ol class="pd pd-n<?= count($podium) ?>" aria-label="Top students">
+                        <?php foreach ($podiumOrder as $i): $r = $podium[$i]; $rk = (int)$r['rank']; $t = min($rk, 3); ?>
+                            <li class="pd-slot pd-t<?= $t ?>">
+                                <div class="pd-person">
+                                    <div class="pd-av" aria-hidden="true">
+                                        <span><?= $h($initials($r['name'])) ?></span>
+                                        <span class="pd-medal"><?= $MEDAL[$t - 1] ?></span>
+                                    </div>
+                                    <div class="pd-name"><?= $h($r['name']) ?></div>
+                                    <?php if ($showGrades && isset($r['grade'])): ?>
+                                        <div class="pd-grade"><?= $h($r['grade']) ?><?php if (isset($r['remark']) && $termMode): ?> <small><?= $h($r['remark']) ?></small><?php endif; ?></div>
                                     <?php endif; ?>
-                                </tr>
+                                    <?php if ($rankCount[$rk] > 1): ?><span class="pd-tie">Tied</span><?php endif; ?>
+                                </div>
+                                <div class="pd-block"><span class="pd-rank"><?= $rk ?></span></div>
+                            </li>
+                        <?php endforeach; ?>
+                    </ol>
+
+                    <?php if ($rest): ?>
+                        <div class="ls-head">
+                            <span>Everyone else <em><?= count($rest) ?></em></span>
+                            <?php if (count($rest) > 8): ?>
+                                <label class="ls-find">
+                                    <i class="bi bi-search" aria-hidden="true"></i>
+                                    <input type="search" id="lsFind" placeholder="Find your name" autocomplete="off" aria-label="Find your name">
+                                </label>
+                            <?php endif; ?>
+                        </div>
+                        <ol class="ls" id="lsList">
+                            <?php foreach ($rest as $r): $rk = (int)$r['rank']; ?>
+                                <li class="ls-row" data-name="<?= $h(mb_strtolower($r['name'])) ?>">
+                                    <span class="ls-rk"><?= $rk ?></span>
+                                    <span class="ls-av" aria-hidden="true"><?= $h($initials($r['name'])) ?></span>
+                                    <span class="ls-name"><?= $h($r['name']) ?><?php if ($rankCount[$rk] > 1): ?> <span class="ls-tie">tied</span><?php endif; ?></span>
+                                    <?php if ($showGrades): ?>
+                                        <span class="ls-grade"><?= $h($r['grade'] ?? '—') ?><?php if (isset($r['remark'])): ?><small class="<?= !empty($r['pass']) ? 'sh-pass' : 'sh-fail' ?>"><?= $h($r['remark']) ?></small><?php endif; ?></span>
+                                    <?php endif; ?>
+                                </li>
                             <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                        </ol>
+                        <p class="sh-none ls-nomatch" id="lsNone" hidden>No name matches. The top three are shown above.</p>
+                    <?php endif; ?>
                 <?php endif; ?>
 
                 <footer class="sh-foot">
@@ -158,6 +192,26 @@ $sub = $share ? implode(' · ', array_filter([(string)($share['section'] ?? ''),
                 Students with the same grade share the same rank. Grades here are not official until released by the school.</p>
         <?php endif; ?>
     </main>
+    <?php if ($share && count($rest) > 8): ?>
+        <script nonce="<?= $h($nonce) ?>">
+            /* "Find your name" — sinasala lang ang listahan sa ibaba; ang
+               podium ay laging nakikita. */
+            (function () {
+                var q = document.getElementById('lsFind'),
+                    rows = document.querySelectorAll('#lsList .ls-row'),
+                    none = document.getElementById('lsNone');
+                q.addEventListener('input', function () {
+                    var v = q.value.trim().toLowerCase(), shown = 0;
+                    rows.forEach(function (r) {
+                        var on = !v || r.getAttribute('data-name').indexOf(v) !== -1;
+                        r.hidden = !on;
+                        if (on) shown++;
+                    });
+                    none.hidden = shown > 0;
+                });
+            })();
+        </script>
+    <?php endif; ?>
 </body>
 
 </html>
