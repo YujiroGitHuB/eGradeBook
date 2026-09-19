@@ -3340,22 +3340,28 @@ function buildRanking() {
     return { ranked, unranked };
 }
 
+/* Ang ganoon ding hanay na nasa dulo ng sheet: sa term mode ay General Ave +
+   Equivalent, sa flat mode ay % + Passed/Failed. Iisang pinagmulan para sa
+   modal at sa share link, kaya hindi magkaiba ang nakikita ng guro at ng klase. */
+function rankCells(r, termMode, pass) {
+    if (termMode) {
+        const eq = transmuteExcel(r.val);
+        return { grade: r.val.toFixed(2), remark: eq !== null ? eq : '5.00', pass: eq !== null };
+    }
+    const ok = r.val >= pass;
+    return { grade: r.val.toFixed(1) + '%', remark: ok ? 'Passed' : 'Failed', pass: ok };
+}
+
 function openRanking() {
     if (!SHEET || !SHEET.students.length) { showToastSafe('Open a section first.', 'error'); return; }
     const termMode = SHEET.term_mode === true;
     const pass = clampPct(parseFloat($('numPass').value) || 0);
     const { ranked, unranked } = buildRanking();
 
-    /* Ipinapakita ang ganoon ding hanay na nasa dulo ng sheet: sa term mode ay
-       General Ave + Equivalent, sa flat mode ay % + Passed/Failed. */
-    const val = r => termMode ? r.val.toFixed(2) : r.val.toFixed(1) + '%';
+    const val = r => rankCells(r, termMode, pass).grade;
     const tail = r => {
-        if (termMode) {
-            const eq = transmuteExcel(r.val);
-            return `<span class="${eq !== null ? 'rk-pass' : 'rk-fail'}">${eq !== null ? eq : '5.00'}</span>`;
-        }
-        const ok = r.val >= pass;
-        return `<span class="${ok ? 'rk-pass' : 'rk-fail'}">${ok ? 'Passed' : 'Failed'}</span>`;
+        const c = rankCells(r, termMode, pass);
+        return `<span class="${c.pass ? 'rk-pass' : 'rk-fail'}">${c.remark}</span>`;
     };
 
     $('rkSub').textContent = [
@@ -3418,6 +3424,131 @@ function openRanking() {
 }
 
 function closeRanking() { $('rankModal').classList.remove('show'); }
+
+/* ── Share ranking (Class ranking ▸ Share link…) ─────────────
+   Public na link (share.php?t=…) na mabubuksan ng estudyante nang walang
+   login. SNAPSHOT ang ipinapadala — ang mismong ranggo ng modal, kinuwenta
+   rito sa browser — dahil dito lang umiiral ang grade math (column picker,
+   "Missing = 0", transmutation). Ang pagkopya nito sa PHP para maging "live"
+   ay dalawang kopyang magkakaiba balang-araw, at makikita pa ng klase ang
+   grado habang nag-e-encode pa ang guro.
+
+   Ang mga pagpipilian (grade, maikling pangalan, Top N) ay IPINAPATUPAD sa
+   server (ShareRepo), hindi rito — ang hindi pinayagan ay hindi iniimbak. */
+let SHARE_LINK = null;   // link ng kasalukuyang klase mula sa server, o null
+
+const shareUrl = token => new URL('share.php?t=' + encodeURIComponent(token), location.href).href;
+
+function shareFmt(ts) {
+    const d = ts ? new Date(String(ts).replace(' ', 'T')) : null;
+    return d && !isNaN(d) ? d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+}
+
+function renderShareState() {
+    const l = SHARE_LINK;
+    $('shLinkBox').style.display = l ? '' : 'none';
+    $('shRevoke').style.display = l ? '' : 'none';
+    $('shSave').innerHTML = l
+        ? '<i class="bi bi-arrow-repeat"></i> Update link'
+        : '<i class="bi bi-link-45deg"></i> Create link';
+    if (!l) return;
+    const url = shareUrl(l.token);
+    $('shUrl').value = url;
+    $('shOpen').href = url;
+    const exp = l.expired
+        ? '<span class="sh-expired">Expired — press Update link to turn it back on</span>'
+        : (l.expires_at ? `Expires ${escHtml(shareFmt(l.expires_at))}` : 'Never expires');
+    $('shMeta').innerHTML = `Last updated ${escHtml(shareFmt(l.updated_at))} · ${exp}`;
+}
+
+function shareSetControls(l) {
+    $('shGrades').checked = !!(l && l.show_grades);
+    $('shShort').checked = !!(l && l.short_names);
+    $('shTop').value = String(l ? l.top_n : 0);
+    $('shExpire').value = String(l ? l.expire_days : 30);
+}
+
+async function openShare() {
+    if (!SHEET || !SHEET.students.length) { showToastSafe('Open a section first.', 'error'); return; }
+    closeRanking();
+    $('shSub').textContent = [SHEET.section, classIsLegacy() ? '' : classLabel(CLASS)].filter(Boolean).join(' · ');
+    SHARE_LINK = null;
+    shareSetControls(null);
+    renderShareState();
+    $('shSave').disabled = true;   // hanggang malaman kung Create o Update
+    $('shareModal').classList.add('show');
+
+    const d = await apiGet({ api: 'share_ranking_get', section: SHEET.section });
+    $('shSave').disabled = false;
+    if (!d.success) { showToastSafe(d.message || 'Could not load the share link.', 'error'); return; }
+    SHARE_LINK = d.link || null;
+    shareSetControls(SHARE_LINK);
+    renderShareState();
+}
+
+function closeShare() { $('shareModal').classList.remove('show'); }
+
+async function saveShare() {
+    if (!SHEET) return;
+    const termMode = SHEET.term_mode === true;
+    const pass = clampPct(parseFloat($('numPass').value) || 0);
+    const { ranked } = buildRanking();
+    if (!ranked.length) { showToastSafe('No one is ranked yet — there is nothing to share.', 'error'); return; }
+
+    /* Walang student_no at walang hindi naka-ranggo — hindi sila kailanman
+       umaalis sa browser na ito. */
+    const rows = ranked.map(r => ({ rank: r.rank, name: r.s.fullname || '', ...rankCells(r, termMode, pass) }));
+    const btn = $('shSave');
+    btn.disabled = true;
+    const d = await apiPost({
+        api: 'share_ranking_save',
+        section: SHEET.section,
+        class_label: classIsLegacy() ? '' : classLabel(CLASS),
+        term_mode: termMode ? 1 : 0,
+        show_grades: $('shGrades').checked ? 1 : 0,
+        short_names: $('shShort').checked ? 1 : 0,
+        top_n: $('shTop').value,
+        expire_days: $('shExpire').value,
+        rows: JSON.stringify(rows),
+    });
+    btn.disabled = false;
+    if (!d.success) { showToastSafe(d.message || 'Could not save the share link.', 'error'); return; }
+    const wasNew = !SHARE_LINK;
+    SHARE_LINK = d.link || null;
+    renderShareState();
+    showToastSafe(wasNew ? 'Link created — copy it and send it to your class.' : 'Link updated — same address, new ranking.', 'success');
+}
+
+async function copyShareUrl() {
+    const url = $('shUrl').value;
+    if (!url) return;
+    try {
+        await navigator.clipboard.writeText(url);
+    } catch (e) {
+        /* Walang Clipboard API sa http:// na hindi localhost — piliin na lang
+           ang teksto para Ctrl+C ang gawin ng guro. */
+        $('shUrl').select();
+        try { document.execCommand('copy'); } catch (e2) { /* nakapili na, sapat na */ }
+    }
+    showToastSafe('Link copied.', 'success');
+}
+
+async function revokeShare() {
+    const ok = await uiConfirm({
+        title: 'Turn off this link?',
+        message: `Anyone who opens the link for <b>${escHtml(SHEET ? SHEET.section : '')}</b> will see that it is no longer available.
+                  Creating a link again gives a <b>new</b> address — the old one stays dead.`,
+        ok: 'Turn off link',
+        icon: 'bi-slash-circle',
+        danger: true,
+    });
+    if (!ok) return;
+    const d = await apiPost({ api: 'share_ranking_revoke', section: SHEET.section });
+    if (!d.success) { showToastSafe(d.message || 'Could not turn off the link.', 'error'); return; }
+    SHARE_LINK = null;
+    renderShareState();
+    showToastSafe('Link turned off.', 'success');
+}
 
 function openBreakdown(sno) {
     if (!SHEET) return;
@@ -4140,6 +4271,20 @@ $('rankModal').addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && $('rankModal').classList.contains('show')) closeRanking();
+});
+$('rkShareBtn').addEventListener('click', openShare);
+$('shBack').addEventListener('click', () => { closeShare(); openRanking(); });
+$('shSave').addEventListener('click', saveShare);
+$('shCopy').addEventListener('click', copyShareUrl);
+$('shRevoke').addEventListener('click', revokeShare);
+$('shareModal').addEventListener('click', e => {
+    if (e.target === $('shareModal')) closeShare();
+});
+document.addEventListener('keydown', e => {
+    /* Hindi habang bukas ang uiConfirm (Turn off link) — ang Escape doon ay
+       para sa confirm lang. */
+    if (e.key === 'Escape' && $('shareModal').classList.contains('show')
+        && !($('uiConfirmModal') && $('uiConfirmModal').classList.contains('show'))) closeShare();
 });
 $('bdClose').addEventListener('click', closeBreakdown);
 $('bdPdf').addEventListener('click', exportStudentPDF);

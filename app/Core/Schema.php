@@ -426,6 +426,37 @@ class Schema
             whatsnew_seen VARCHAR(10) NOT NULL DEFAULT '',
             updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         )");
+
+        /* Shared ranking link — ang PUBLIC na link ng Class ranking (share.php?t=…).
+           Isa kada klase (uq_class): ang "Update link" ay pinapalitan ang laman
+           pero PAREHO ang token, kaya hindi na kailangang ipamahagi ulit ang URL.
+           Ang Revoke ay DELETE — ang susunod na link ay bagong token, kaya ang
+           lumang ipinamigay ay patay na habambuhay.
+
+           SNAPSHOT ang `payload`, hindi live: sa browser kinukuwenta ang grado
+           (column picker, "Missing = 0", transmutation), kaya ang eksaktong
+           nakita ng guro sa modal ang iniimbak — at ang NAKA-FILTER na na bersyon
+           lang (walang grade kapag naka-off, walang student no., walang INC/DRP/W).
+           Ang wala rito ay hindi kailanman maaabot ng publiko. */
+        $conn->query("CREATE TABLE IF NOT EXISTS grade_share_links (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            token       CHAR(32)     NOT NULL,
+            owner_id    INT          NOT NULL,
+            section     VARCHAR(20)  NOT NULL,
+            school_year VARCHAR(9)   NOT NULL DEFAULT '',
+            semester    VARCHAR(8)   NOT NULL DEFAULT '',
+            subject     VARCHAR(120) NOT NULL DEFAULT '',
+            payload     MEDIUMTEXT   NOT NULL,
+            show_grades TINYINT(1)   NOT NULL DEFAULT 0,
+            short_names TINYINT(1)   NOT NULL DEFAULT 0,
+            top_n       INT          NOT NULL DEFAULT 0,
+            expire_days INT          NOT NULL DEFAULT 30,
+            expires_at  DATETIME     NULL,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_token (token),
+            UNIQUE KEY uq_class (owner_id, section, school_year, semester, subject)
+        )");
     }
 
     /* Is $col part of the named index ($index; use 'PRIMARY' for the primary

@@ -2355,6 +2355,38 @@ table.gs tbody td.fin-cell {
     .rk-podium { grid-template-columns: 1fr; }
 }
 
+/* ── Share ranking (public na link) ──────────────────────────────────── */
+.sh-body { display: flex; flex-direction: column; gap: .8rem; margin-top: 1.2rem; }
+
+.sh-linkbox {
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-radius: 10px;
+    padding: .6rem;
+}
+
+.sh-linkrow { display: flex; gap: .4rem; align-items: center; }
+.sh-linkrow .gs-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .76rem;
+}
+
+.sh-linkmeta { font-size: .72rem; color: var(--muted); margin-top: .4rem; }
+.sh-linkmeta .sh-expired { color: var(--danger); font-weight: 700; }
+
+.sh-opts { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+/* Dalawang klase — para matalo ang `.gs-field select { min-width: 200px }`
+   na magpapalapad sa modal nang lampas sa screen ng telepono. */
+.sh-opts .gs-field select { min-width: 0; width: 100%; }
+
+@media (max-width: 480px) {
+    .sh-opts { grid-template-columns: 1fr; }
+    .sh-linkrow { flex-wrap: wrap; }
+    .sh-linkrow .gs-input { flex-basis: 100%; }
+}
+
 .bd-method {
     font-size: .74rem;
     color: var(--muted);

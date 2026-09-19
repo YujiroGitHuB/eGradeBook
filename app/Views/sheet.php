@@ -804,7 +804,79 @@ $avatarPic = function (string $cls = '', string $iconStyle = '') use ($avatarSrc
             </div>
             <div id="rkBody" class="rk-body"></div>
             <div class="modal-actions" style="margin-top:1.3rem;">
+                <button class="btn btn-ghost" id="rkShareBtn" style="margin-right:auto;" title="Make a link your students can open without logging in"><i class="bi bi-link-45deg"></i> Share link…</button>
                 <button class="btn btn-ghost" id="rkClose"><i class="bi bi-x-lg"></i> Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Public na link ng ranking — snapshot, ang guro ang nagpapasya kung ano ang makikita -->
+    <div class="modal-backdrop" id="shareModal">
+        <div class="modal gs-maccent" style="max-width:520px;">
+            <div class="gs-mhead">
+                <div class="gs-mhead-ic"><i class="bi bi-link-45deg"></i></div>
+                <div>
+                    <h3 class="gs-mtitle">Share ranking</h3>
+                    <p class="gs-msub" id="shSub"></p>
+                </div>
+            </div>
+            <div class="sh-body">
+                <div id="shLinkBox" class="sh-linkbox" style="display:none;">
+                    <div class="sh-linkrow">
+                        <input id="shUrl" class="gs-input" readonly aria-label="Share link">
+                        <button type="button" class="btn btn-primary btn-sm" id="shCopy"><i class="bi bi-clipboard"></i> Copy</button>
+                        <a class="btn btn-ghost btn-sm" id="shOpen" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right"></i> Open</a>
+                    </div>
+                    <p class="sh-linkmeta" id="shMeta"></p>
+                </div>
+
+                <label class="imp-switch-row">
+                    <span class="imp-switch-txt">
+                        <span class="imp-switch-title">Show grades</span>
+                        <span class="imp-switch-sub">Off = name and rank only.</span>
+                    </span>
+                    <span class="imp-switch">
+                        <input type="checkbox" id="shGrades">
+                        <span class="imp-switch-track"></span>
+                    </span>
+                </label>
+                <label class="imp-switch-row">
+                    <span class="imp-switch-txt">
+                        <span class="imp-switch-title">Shorten names</span>
+                        <span class="imp-switch-sub">"Dela Cruz, Juan P." → "Dela Cruz, J."</span>
+                    </span>
+                    <span class="imp-switch">
+                        <input type="checkbox" id="shShort">
+                        <span class="imp-switch-track"></span>
+                    </span>
+                </label>
+                <div class="sh-opts">
+                    <div class="gs-field">
+                        <label for="shTop">Show</label>
+                        <select id="shTop" class="gs-input">
+                            <option value="0">All ranked students</option>
+                            <option value="10">Top 10</option>
+                            <option value="3">Top 3</option>
+                        </select>
+                    </div>
+                    <div class="gs-field">
+                        <label for="shExpire">Link expires</label>
+                        <select id="shExpire" class="gs-input">
+                            <option value="7">In 7 days</option>
+                            <option value="30" selected>In 30 days</option>
+                            <option value="0">Never (until turned off)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="rk-note"><i class="bi bi-info-circle"></i>
+                    <span>Anyone with the link can see it — no login needed. It is a <b>snapshot</b>: after changing scores,
+                        press <b>Update link</b> (the address stays the same). Student numbers and anyone marked INC/DRP/W or not yet graded are never shown.</span></div>
+            </div>
+            <div class="modal-actions" style="margin-top:1.3rem;">
+                <button class="btn btn-danger-ghost btn-sm" id="shRevoke" style="display:none;margin-right:auto;" title="The link stops working right away"><i class="bi bi-slash-circle"></i> Turn off link</button>
+                <button class="btn btn-ghost" id="shBack"><i class="bi bi-arrow-left"></i> Back</button>
+                <button class="btn btn-primary" id="shSave"><i class="bi bi-link-45deg"></i> Create link</button>
             </div>
         </div>
     </div>

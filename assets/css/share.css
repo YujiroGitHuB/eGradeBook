@@ -1,0 +1,168 @@
+/* ============================================================
+   share.css — ang public na Class ranking (share.php).
+   Kaanyo ng Class ranking modal (.rk-* sa grades.css) para iisa ang
+   itsura ng nakikita ng guro at ng estudyante, pero sariling file:
+   hindi kailangan ng public page ang ~3k linya ng grades.css.
+   ============================================================ */
+
+.sh-wrap {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 1.5rem 16px 2.5rem;
+    position: relative;
+    z-index: 1;
+}
+
+.sh-brand {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 1rem;
+}
+
+.sh-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.25rem;
+    border-top: 3px solid var(--accent3);
+}
+
+.sh-head { display: flex; gap: .75rem; align-items: center; margin-bottom: 1.1rem; }
+
+.sh-head-ic,
+.sh-empty-ic {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    font-size: 1.2rem;
+    color: var(--accent3);
+    background: color-mix(in srgb, var(--accent3) 14%, transparent);
+}
+
+.sh-head h1 { font-size: 1.15rem; font-weight: 700; color: var(--text); }
+.sh-sub { font-size: .82rem; color: var(--muted); margin-top: .15rem; overflow-wrap: anywhere; }
+.sh-none { color: var(--muted); font-size: .9rem; }
+
+/* Podium — tatlong card, pumapatong kapag makitid */
+.sh-podium {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: .5rem;
+    margin-bottom: 1rem;
+}
+
+.sh-pod {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: .7rem .5rem;
+    text-align: center;
+    background: var(--surface2);
+    min-width: 0;
+}
+
+.sh-pod-1 {
+    border-color: color-mix(in srgb, var(--accent3) 55%, transparent);
+    background: color-mix(in srgb, var(--accent3) 10%, transparent);
+}
+
+.sh-medal { font-size: 1.5rem; line-height: 1.1; }
+
+.sh-pod-name {
+    font-size: .85rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-top: .25rem;
+    overflow-wrap: anywhere;
+}
+
+.sh-pod-val {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    margin-top: .15rem;
+}
+
+.sh-table { width: 100%; border-collapse: collapse; font-size: .88rem; table-layout: fixed; }
+
+.sh-table thead th {
+    text-align: left;
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 .4rem .4rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.sh-table td {
+    padding: .5rem .4rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: middle;
+}
+
+.sh-table tr:last-child td { border-bottom: none; }
+.sh-top td { background: color-mix(in srgb, var(--accent3) 6%, transparent); }
+
+.sh-c-rank {
+    width: 2.6rem;
+    text-align: center;
+    font-weight: 700;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.sh-table thead th.sh-c-rank { text-align: center; }
+.sh-name { font-weight: 500; overflow-wrap: anywhere; }
+
+.sh-c-num,
+.sh-table thead th.sh-c-num {
+    width: 6.2rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.sh-val { font-weight: 700; }
+.sh-pass { color: var(--success); font-weight: 700; }
+.sh-fail { color: var(--danger); font-weight: 700; }
+
+.sh-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem 1rem;
+    margin-top: 1rem;
+    padding-top: .8rem;
+    border-top: 1px solid var(--border);
+    font-size: .75rem;
+    color: var(--muted);
+}
+
+.sh-foot i { margin-right: .2rem; }
+
+.sh-disclaimer {
+    font-size: .72rem;
+    color: var(--muted);
+    text-align: center;
+    margin-top: .9rem;
+    line-height: 1.5;
+}
+
+.sh-empty { text-align: center; padding: 2rem 1.25rem; }
+.sh-empty .sh-empty-ic { margin: 0 auto .8rem; }
+.sh-empty h1 { font-size: 1.1rem; color: var(--text); margin-bottom: .4rem; }
+.sh-empty p { font-size: .88rem; color: var(--muted); }
+
+@media (max-width: 480px) {
+    .sh-podium { grid-template-columns: 1fr; }
+    .sh-c-num,
+    .sh-table thead th.sh-c-num { width: 4.8rem; }
+}

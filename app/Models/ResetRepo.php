@@ -41,6 +41,9 @@ class ResetRepo
         'grade_roster_snapshot' => 'roster snapshots',
         'grade_classes'         => 'classes',
         'grade_pinned_sections' => 'pinned sections',
+        /* Kasama: ang malinis na gradebook ay hindi dapat mag-iwan ng public
+           link na nagpapakita pa rin ng lumang ranking. */
+        'grade_share_links'     => 'shared ranking links',
     ];
 
     /* SADYANG WALA RITO ang `grade_transmute`. Hindi iyon gradebook — isa

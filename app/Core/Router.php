@@ -16,6 +16,7 @@ use App\Controllers\ResetController;
 use App\Controllers\AccessController;
 use App\Controllers\ReportController;
 use App\Controllers\OnboardingController;
+use App\Controllers\ShareController;
 
 /* ============================================================
    Router — maps a `?api=` action to [ControllerClass, method]. Keeps
@@ -86,6 +87,10 @@ class Router
         // onboarding — per-account guided tour + What's New (state is rendered into the page)
         'onboarding_tour_done'     => [OnboardingController::class, 'tourDone'],
         'onboarding_whatsnew_seen' => [OnboardingController::class, 'whatsNewSeen'],
+        // public class-ranking link (the public read itself is share.php, not an api action)
+        'share_ranking_get'     => [ShareController::class, 'status'],
+        'share_ranking_save'    => [ShareController::class, 'save'],
+        'share_ranking_revoke'  => [ShareController::class, 'revoke'],
     ];
 
     private Database $db;

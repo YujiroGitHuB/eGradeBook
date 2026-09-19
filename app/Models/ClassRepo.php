@@ -35,6 +35,10 @@ class ClassRepo
         'grade_settings'        => 'grading settings',
         'grade_form_meta'       => 'form column setup',
         'grade_attendance_meta' => 'attendance setup',
+        /* Ang public ranking link ng klase — hindi laman, pero hindi rin dapat
+           maiwang buhay ang isang link na nagpapakita ng klaseng binura na.
+           Sa retag, sumasama ito sa klase (pareho ang token/URL). */
+        'grade_share_links'     => 'shared ranking link',
     ];
 
     /* Lahat ng class-scoped na table ng guro — ito ang inililipat nang buo ng

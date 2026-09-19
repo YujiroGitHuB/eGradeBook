@@ -18,15 +18,16 @@ request; connection defaults are `localhost` / `root` / no password (see
 Static assets are cache-busted at runtime via `filemtime()` query strings, so
 edits to CSS/JS take effect on reload with no build.
 
-**Only two entry points:** `index.php` (front controller — page + all `?api=`
-JSON) and `login.php`; `inc/logout.php` destroys the session. Every other PHP
-file is reached through those.
+**Three entry points:** `index.php` (front controller — page + all `?api=`
+JSON), `login.php`, and `share.php` — the **only public, no-login page** (see
+"Shared ranking link" below); `inc/logout.php` destroys the session. Every
+other PHP file is reached through those.
 
 **The only automated check available** is PHP's syntax linter — there is no test
 suite, no linter config, no CI. Run it over the tree after editing PHP:
 
 ```bash
-find app inc components index.php login.php -name '*.php' -exec php -l {} \;   # all PHP
+find app inc components index.php login.php share.php -name '*.php' -exec php -l {} \;   # all PHP
 php -l app/Models/SheetRepo.php                                                # one file
 ```
 
@@ -217,6 +218,38 @@ eGradeBook on the next login.
   someone else's work should not be reachable by the same reflex. The server
   recomputes the required phrase from the target and compares it itself, so a
   disabled button is never the only defence against a stray `?api=reset_all`.
+
+## Shared ranking link (`share.php`) — the one public page
+
+Class ranking ▸ **Share link…** publishes the ranking at `share.php?t=<token>`,
+readable **without a login**. `grade_share_links` (`ShareRepo`,
+`ShareController`; actions `share_ranking_get` / `share_ranking_save` /
+`share_ranking_revoke`) holds **one row per class** (`uq_class`), so "Update
+link" rewrites the payload under the **same token** and a URL already sent to
+students keeps working. Revoke is a `DELETE`, so creating another link gives a new
+token and the old URL stays dead.
+
+- **It is a snapshot, not live.** Grades exist only in `grades.js` (column
+  picker, Missing = 0, transmutation), so the client posts the ranked rows it
+  already computed (`buildRanking()` + `rankCells()`, the same helpers the modal
+  uses). Porting the grade math to PHP would create a second copy that could
+  drift from the first, and a live page would show students grades while the
+  teacher is still encoding.
+- **Privacy is enforced server-side in `ShareRepo::cleanRows()`**, not in the
+  client: with "Show grades" off the grade is never stored, Top N rows beyond
+  the cutoff are never stored (ties at the cutoff are kept), "Shorten names" is
+  applied before storing, and every field is shape-checked. The client never
+  sends student numbers or the unranked (INC/DRP/W / not graded) list. **Whatever
+  is not in `payload` can never reach the public.**
+- `share.php` **never starts a session** (no `Auth::start`) and sends
+  `noindex`, `no-referrer`, `no-store`, `DENY` framing and a nonce CSP. It
+  returns the same 404 for an unknown, revoked or expired token, so someone
+  guessing tokens cannot tell those cases apart. All output goes through `h()`.
+  Styles are in `assets/css/share.css`, kept separate so the public page does
+  not load `grades.css`.
+- The table is in `ClassRepo::SETUP_TABLES` (it moves with `retag_class`, and
+  `delete_class` clears it) and in `ResetRepo::OWNED_TABLES`, so neither
+  deleting a class nor running Clear all leaves a live public link behind.
 
 ## Class scoping (school year / semester / subject)
 
