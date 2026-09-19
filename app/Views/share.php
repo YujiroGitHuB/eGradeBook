@@ -199,6 +199,10 @@ $findBox = function () use ($showFind): void {
                         <?php foreach ($podiumOrder as $gi): $g = $podiumG[$gi]; $rk = $g['rank']; $t = min($rk, 3); $n = count($g['rows']); $r0 = $g['rows'][0]; ?>
                             <li class="pd-slot pd-t<?= $t ?><?= $n > 1 ? ' pd-tied' : '' ?>">
                                 <div class="pd-person">
+                                    <?php if ($t === 1): ?>
+                                        <!-- Confetti ng #1 — isang beses lang pumuputok, puro CSS (tingnan ang share.css) -->
+                                        <span class="pd-confetti" aria-hidden="true"><?= str_repeat('<i></i>', 12) ?></span>
+                                    <?php endif; ?>
                                     <?php if ($n === 1): ?>
                                         <div class="pd-av" aria-hidden="true">
                                             <span><?= $h($initials($r0['name'])) ?></span>
@@ -273,6 +277,10 @@ $findBox = function () use ($showFind): void {
                     groups = document.querySelectorAll('.ls .ls-row'),
                     none = document.getElementById('lsNone');
                 q.addEventListener('input', function () {
+                    /* Ang hanay na itinago at muling ipinakita ay uulitin ang
+                       pagpasok nitong animation (may delay pa) — kaya kapag
+                       naghanap na, patayin ang animation ng listahan. */
+                    document.body.classList.add('ls-searched');
                     var v = q.value.trim().toLowerCase(), shown = 0;
                     groups.forEach(function (g) {
                         var any = false;

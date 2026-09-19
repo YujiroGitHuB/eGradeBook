@@ -251,6 +251,16 @@ token and the old URL stays dead.
   below". Any podium group over that cap is repeated in full under **Tied on
   the podium**, so a big tie never stretches one column, and every name stays
   reachable through **Find your name**, which filters every `.ls` list.
+  The intro animation is **CSS only** (the page's CSP allows no inline
+  styles and no script beyond its nonce). The order is header, then #3, #2,
+  #1, then the list. Each place's delays come from `--d-block` /
+  `--d-person` on `.pd-t1/2/3`, so they follow *rank* rather than screen
+  order. #1 also gets confetti (the `.pd-confetti` spans in the view), a
+  shine and a glow. Everything uses `animation-fill-mode: both`, so the
+  finished state is the page's normal state, and `prefers-reduced-motion`
+  turns all of it off. A row that search hides and then shows again would
+  replay its entrance delay, so the first search adds `body.ls-searched`,
+  which switches the list animation off.
 - **Privacy is enforced server-side in `ShareRepo::cleanRows()`**, not in the
   client: with "Show grades" off the grade is never stored, Top N rows beyond
   the cutoff are never stored (ties at the cutoff are kept), "Shorten names" is

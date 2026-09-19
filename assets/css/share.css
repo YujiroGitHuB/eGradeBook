@@ -475,6 +475,159 @@ body.light .sh-wrap {
 .sh-empty h1 { font-size: 1.1rem; color: var(--text); margin-bottom: .4rem; }
 .sh-empty p { font-size: .88rem; color: var(--muted); }
 
+/* ── Animation ──────────────────────────────────────────────────
+   Isang beses sa pagbukas ng page, puro CSS (walang JS — CSP):
+     header → #3 → #2 → #1 (ang #1 ang huli, para may suspense)
+     bawat puwesto: tumataas ang bloke mula sa sahig → lumalabas ang tao →
+     umuugoy ang medalya; sa #1: confetti, kumikislap ang bloke, pumipintig
+     ang avatar → isa-isang lumalabas ang listahan.
+   `both` ang fill-mode: nakatago habang naghihintay ng sariling delay, at
+   nananatili sa dulong anyo pagkatapos. Walang animation kapag naka-on ang
+   "reduce motion" ng device (sa pinakaibaba). */
+.sh-hero { animation: sh-fade-up .5s ease-out both; }
+
+.pd-block {
+    position: relative;
+    overflow: hidden;
+    animation: pd-rise .65s cubic-bezier(.2, .8, .25, 1) both;
+    animation-delay: var(--d-block);
+}
+.pd-rank,
+.pd-tielabel { animation: sh-fade-up .45s ease-out both; animation-delay: calc(var(--d-block) + .25s); }
+
+.pd-person { position: relative; animation: pd-pop .55s cubic-bezier(.3, 1.4, .5, 1) both; animation-delay: var(--d-person); }
+.pd-medal { transform-origin: 50% 0; animation: pd-swing .9s ease-out both; animation-delay: calc(var(--d-person) + .35s); }
+
+/* Pagkakasunod ayon sa PUWESTO, hindi sa ayos sa screen (2 · 1 · 3). */
+.pd-t3 { --d-block: .25s; --d-person: .6s; }
+.pd-t2 { --d-block: .55s; --d-person: .9s; }
+.pd-t1 { --d-block: .85s; --d-person: 1.2s; }
+
+/* #1 — kislap na dumaraan sa bloke, paulit-ulit pero may mahabang pahinga */
+.pd-t1 .pd-block::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, .28) 50%, transparent 65%);
+    transform: translateX(-120%);
+    animation: pd-shine 4.5s ease-in-out 2.3s infinite;
+    pointer-events: none;
+}
+
+/* #1 — mahinang pintig ng liwanag sa avatar (hindi sa maliliit ng tabla) */
+.pd-t1 .pd-av:not(.pd-av-sm) { animation: pd-glow 2.8s ease-in-out 2.3s infinite; }
+
+/* #1 — confetti: 12 piraso na lumilipad palabas mula sa likod ng avatar */
+.pd-confetti {
+    position: absolute;
+    left: 50%;
+    top: 34px;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.pd-confetti i {
+    position: absolute;
+    width: 7px;
+    height: 11px;
+    border-radius: 2px;
+    background: var(--gold);
+    opacity: 0;
+    animation: pd-burst 1.2s cubic-bezier(.15, .7, .35, 1) both;
+    animation-delay: calc(var(--d-person) + .2s);
+}
+
+.pd-confetti i:nth-child(3n + 1) { background: var(--accent2); }
+.pd-confetti i:nth-child(3n + 2) { background: var(--silver); width: 6px; height: 6px; border-radius: 50%; }
+.pd-confetti i:nth-child(1)  { --x: -78px; --y: -46px; --r: 220deg; }
+.pd-confetti i:nth-child(2)  { --x: -54px; --y: -74px; --r: -160deg; }
+.pd-confetti i:nth-child(3)  { --x: -22px; --y: -88px; --r: 300deg; }
+.pd-confetti i:nth-child(4)  { --x: 14px;  --y: -92px; --r: -240deg; }
+.pd-confetti i:nth-child(5)  { --x: 46px;  --y: -78px; --r: 180deg; }
+.pd-confetti i:nth-child(6)  { --x: 76px;  --y: -52px; --r: -300deg; }
+.pd-confetti i:nth-child(7)  { --x: 88px;  --y: -12px; --r: 260deg; }
+.pd-confetti i:nth-child(8)  { --x: -90px; --y: -8px;  --r: -200deg; }
+.pd-confetti i:nth-child(9)  { --x: -64px; --y: 22px;  --r: 140deg; }
+.pd-confetti i:nth-child(10) { --x: 66px;  --y: 26px;  --r: -120deg; }
+.pd-confetti i:nth-child(11) { --x: -34px; --y: -60px; --r: 90deg; }
+.pd-confetti i:nth-child(12) { --x: 32px;  --y: -58px; --r: -90deg; }
+
+/* Listahan — isa-isa, pagkatapos ng podium. Hanggang ika-15 lang ang
+   pagkakaiba ng delay; ang iba ay sabay na, para hindi maghintay nang
+   matagal ang nasa ibaba ng mahabang klase. */
+.ls-head { animation: sh-fade-up .45s ease-out 1.55s both; }
+.ls-row { animation: sh-fade-up .4s ease-out both; animation-delay: 2.35s; }
+.ls-row:nth-child(1)  { animation-delay: 1.65s; }
+.ls-row:nth-child(2)  { animation-delay: 1.7s; }
+.ls-row:nth-child(3)  { animation-delay: 1.75s; }
+.ls-row:nth-child(4)  { animation-delay: 1.8s; }
+.ls-row:nth-child(5)  { animation-delay: 1.85s; }
+.ls-row:nth-child(6)  { animation-delay: 1.9s; }
+.ls-row:nth-child(7)  { animation-delay: 1.95s; }
+.ls-row:nth-child(8)  { animation-delay: 2s; }
+.ls-row:nth-child(9)  { animation-delay: 2.05s; }
+.ls-row:nth-child(10) { animation-delay: 2.1s; }
+.ls-row:nth-child(11) { animation-delay: 2.15s; }
+.ls-row:nth-child(12) { animation-delay: 2.2s; }
+.ls-row:nth-child(13) { animation-delay: 2.25s; }
+.ls-row:nth-child(14) { animation-delay: 2.3s; }
+
+/* Pagkatapos maghanap: ang hanay na muling lumitaw ay HINDI na uulit ng
+   pagpasok (at ng mahabang delay nito) — kita agad. */
+body.ls-searched .ls-row,
+body.ls-searched .ls-head { animation: none; }
+
+@keyframes sh-fade-up {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* Tumataas mula sa sahig: inilalantad mula sa ibaba (clip), hindi binabanat —
+   kaya hindi napipisa ang numero habang umaakyat. */
+@keyframes pd-rise {
+    from { clip-path: inset(100% 0 0 0); }
+    to   { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes pd-pop {
+    from { opacity: 0; transform: translateY(-18px) scale(.85); }
+    to   { opacity: 1; transform: none; }
+}
+
+@keyframes pd-swing {
+    0%   { transform: rotate(0); }
+    25%  { transform: rotate(-22deg); }
+    50%  { transform: rotate(14deg); }
+    75%  { transform: rotate(-6deg); }
+    100% { transform: rotate(0); }
+}
+
+@keyframes pd-shine {
+    0%        { transform: translateX(-120%); }
+    30%, 100% { transform: translateX(120%); }
+}
+
+@keyframes pd-glow {
+    0%, 100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--tier) 14%, transparent); }
+    50%      { box-shadow: 0 0 0 7px color-mix(in srgb, var(--tier) 22%, transparent),
+                           0 0 22px color-mix(in srgb, var(--tier) 45%, transparent); }
+}
+
+@keyframes pd-burst {
+    0%   { opacity: 1; transform: translate(0, 0) rotate(0) scale(.4); }
+    70%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--x), var(--y)) rotate(var(--r)) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sh-rank *,
+    .sh-rank *::after,
+    .sh-hero { animation: none !important; }
+    .pd-confetti { display: none; }
+}
+
 /* ── Telepono ───────────────────────────────────────────────── */
 @media (max-width: 480px) {
     .sh-card { padding: 1rem; }
