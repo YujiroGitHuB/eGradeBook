@@ -100,33 +100,25 @@ body.light .sh-wrap {
     margin: 1.4rem 0 0;
 }
 
-/* Isang hanay bawat TAO sa podium; ang grupo ng tabla ay sumasakop ng kasing-
-   dami ng tao nito (pd-span-N), kaya iisang malapad na bloke ang tinatayuan
-   nila. Klase ang gamit, hindi inline style — bawal iyon sa CSP ng page. */
+/* Isang hanay bawat PUWESTO (#1–#3). Kapag kulang sa tatlo ang puwesto,
+   pinapakitid para hindi mabanat ang bloke. Klase ang gamit, hindi inline
+   style — bawal iyon sa CSP ng page. */
 .pd-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 70%; margin-inline: auto; }
-.pd-cols-1 { grid-template-columns: minmax(0, 1fr); }
-.pd-span-2 { grid-column: span 2; }
-.pd-span-3 { grid-column: span 3; }
+.pd-cols-1 { grid-template-columns: minmax(0, 1fr); max-width: 45%; margin-inline: auto; }
 
 .pd-slot { --tier: var(--bronze); display: flex; flex-direction: column; min-width: 0; }
 .pd-t1 { --tier: var(--gold); }
 .pd-t2 { --tier: var(--silver); }
 
-.pd-people { display: flex; flex-wrap: wrap; justify-content: center; }
-
 .pd-person {
-    flex: 1 1 0;
-    min-width: 88px;
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
     gap: .3rem;
     padding: 0 .15rem .6rem;
+    min-width: 0;
 }
-
-/* Isang tao lang sa podium — huwag banatin ang bloke sa buong lapad. */
-.pd-solo { max-width: 45%; margin-inline: auto; }
 
 .pd-av {
     position: relative;
@@ -145,6 +137,45 @@ body.light .sh-wrap {
 }
 
 .pd-t1 .pd-av { width: 68px; height: 68px; font-size: 1.15rem; }
+
+/* Tabla — magkakapatong na maliliit na avatar, tapos "+N" kapag marami. */
+.pd-stack { position: relative; display: flex; justify-content: center; padding-right: 6px; }
+
+.pd-av.pd-av-sm,
+.pd-t1 .pd-av.pd-av-sm {
+    width: 38px;
+    height: 38px;
+    font-size: .72rem;
+    border-width: 2px;
+    box-shadow: 0 0 0 2px var(--surface);
+}
+
+.pd-av-sm + .pd-av-sm { margin-left: -6px; }
+
+.pd-more { color: var(--tier); font-weight: 800; }
+
+.pd-names {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: .15rem;
+    max-width: 100%;
+    margin-top: .1rem;
+}
+
+.pd-names li {
+    font-size: .74rem;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.2;
+    overflow-wrap: break-word;
+}
+
+/* Guhit sa pagitan para kita kung saan nagtatapos ang isang pangalan kapag
+   bumabalot ito sa dalawang linya sa makitid na column. */
+.pd-names li + li { padding-top: .2rem; border-top: 1px dashed var(--border); }
+
+.pd-names .pd-morenames { font-size: .66rem; font-weight: 600; color: var(--tier); }
 
 .pd-medal {
     position: absolute;
@@ -450,7 +481,11 @@ body.light .sh-wrap {
     .sh-hero h1 { font-size: 1.3rem; }
     .pd { gap: .35rem; }
     .pd-cols-2 { max-width: none; }
-    .pd-solo { max-width: 60%; }
+    .pd-cols-1 { max-width: 60%; }
+    .pd-av.pd-av-sm,
+    .pd-t1 .pd-av.pd-av-sm { width: 32px; height: 32px; font-size: .64rem; }
+    .pd-av-sm + .pd-av-sm { margin-left: -5px; }
+    .pd-names li { font-size: .68rem; }
     .pd-av { width: 46px; height: 46px; font-size: .85rem; }
     .pd-t1 .pd-av { width: 56px; height: 56px; font-size: 1rem; }
     .pd-name { font-size: .76rem; }

@@ -243,9 +243,14 @@ token and the old URL stays dead.
   **Top N counts people, not rank numbers**: `cleanRows()` keeps a row while
   fewer than N people rank ahead of it, and the whole tie at the cutoff stays
   in. A plain `rank <= N` would let Top 3 of 1,1,1,2,2,3,3 hold seven people.
-  `share.php` groups tied rows under one number, both on the podium (one wide
-  pedestal per tie) and in the list (one card per tie), and never splits a
-  tie between the two.
+  `share.php` groups tied rows under one number and never splits a tie. The
+  podium is **three places, not three people**: the first three rank groups
+  (rank ≤ 3, so an old 1,1,3 snapshot still renders) in 2·1·3 order, with one
+  pedestal per place. A tied place shows at most `$STACK_MAX` overlapping
+  avatars followed by "+N", and at most `$NAMES_MAX` names followed by "+N more
+  below". Any podium group over that cap is repeated in full under **Tied on
+  the podium**, so a big tie never stretches one column, and every name stays
+  reachable through **Find your name**, which filters every `.ls` list.
 - **Privacy is enforced server-side in `ShareRepo::cleanRows()`**, not in the
   client: with "Show grades" off the grade is never stored, Top N rows beyond
   the cutoff are never stored (ties at the cutoff are kept), "Shorten names" is
