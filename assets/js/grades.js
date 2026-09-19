@@ -4475,12 +4475,37 @@ $('selBarClear').addEventListener('click', () => {
     const more = $('gsMore');
     if (!more) return;
     const trigger = $('btnMore');
+    const menu = $('moreMenu');
     const closeMore = () => { more.classList.remove('open'); if (trigger) trigger.setAttribute('aria-expanded', 'false'); };
+
+    /* Pagkasyahin ang menu sa natitirang espasyo sa ilalim ng trigger at
+       i-scroll ito sa loob. Mas mahaba na ito kaysa sa screen ng telepono, kaya
+       dati ay lumalampas ang ibaba at hindi maabot ang Danger zone. Kapag masyadong
+       mababa ang trigger (naka-scroll pababa ang pahina), itinataas muna ang
+       pahina para hindi maging tatlong item lang ang kita sa menu. */
+    const GAP = 8, EDGE = 12, MIN_ROOM = 320;
+    const roomBelow = () => window.innerHeight - trigger.getBoundingClientRect().bottom - GAP - EDGE;
+    const fitMore = (allowScroll) => {
+        if (!trigger || !more.classList.contains('open')) return;
+        menu.style.maxHeight = '';
+        const need = menu.scrollHeight;
+        if (allowScroll && need > roomBelow() && roomBelow() < MIN_ROOM) {
+            const lift = Math.min(need - roomBelow(), trigger.getBoundingClientRect().top - EDGE);
+            if (lift > 0) window.scrollBy({ top: lift, behavior: 'auto' });
+        }
+        menu.style.maxHeight = Math.max(160, roomBelow()) + 'px';
+    };
+
     if (trigger) trigger.addEventListener('click', e => {
         e.stopPropagation();
         const open = more.classList.toggle('open');
         trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) { menu.scrollTop = 0; fitMore(true); }
     });
+    /* Umiikli/humahaba ang viewport ng telepono kapag lumilitaw o nawawala ang
+       address bar — sundan iyon habang bukas ang menu. */
+    window.addEventListener('resize', () => fitMore(false));
+    window.addEventListener('scroll', () => fitMore(false), { passive: true });
     $('moreMenu').addEventListener('click', closeMore);                              // close after picking an item
     document.addEventListener('click', e => { if (!more.contains(e.target)) closeMore(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMore(); });

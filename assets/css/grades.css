@@ -1428,6 +1428,17 @@ th.frm-col {
     box-shadow: 0 14px 38px rgba(0, 0, 0, .30);
     padding: 8px;
     z-index: 200;
+    /* Mas mahaba na ang menu kaysa sa screen ng telepono (at sa maikling
+       laptop window) — dati ay lumalampas ito sa ibaba at hindi maaabot ang mga
+       huling item. Scroll sa LOOB ng menu; ang eksaktong taas ay itinatakda ng
+       JS ayon sa natitirang espasyo sa ilalim ng trigger (tingnan ang fitMore
+       sa grades.js). Ang halagang ito ay pananggalang lang kung wala ang JS.
+       `contain` — ang pag-scroll sa dulo ng menu ay hindi na nag-i-scroll sa
+       pahina sa likod nito. */
+    max-height: calc(100dvh - 140px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
     opacity: 0;
     transform: translateY(-6px) scale(.98);
     transform-origin: top left;

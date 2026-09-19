@@ -632,6 +632,13 @@ theme persisted in `localStorage` under `ff_theme`, shared with FormFlow).
     `opacity: 0`, not `display: none`, so its 220px width counted toward the page
     width even while shut — horizontal scroll with nothing visible causing it. It
     is right-anchored and width-capped on mobile.
+  - **The same menu is taller than a phone screen** (and a short laptop
+    window), so its last items used to be unreachable. It now scrolls
+    internally (`overflow-y: auto`, `overscroll-behavior: contain`).
+    `fitMore()` in `grades.js` sets its `max-height` to the space left below
+    the trigger, re-fits on `resize` and `scroll` (a phone's address bar
+    changes the viewport), and scrolls the page up first when the trigger sits
+    too low to show a useful menu. Adding more items needs no further change.
   Also `.modal-actions` (global.css) is `justify-content: flex-end` **and now
   `flex-wrap: wrap`**: the four-button Transmutation footer overflowed to the
   *left*, off-screen and unreachable, because left overflow does not grow
