@@ -11,7 +11,7 @@ name: Deploy to Hostinger
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 # Dalawang sabay na deploy ay maghahalo ang isinusulat sa iisang document
