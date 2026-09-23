@@ -15,6 +15,28 @@ request; connection defaults are `localhost` / `root` / no password (see
 `inc/db.php`). To reset a single teacher's data, delete their rows (keyed by
 `owner_id`) or drop the `grade_*` tables — they are recreated on next load.
 
+Those defaults are **fallbacks, not the config**. Config comes from a **`.env`
+in the project root**, read by `App\Core\Env` — *the same class and the same
+file format as FormFlow*, deliberately copied rather than reinvented, since the
+two apps share a hosting account. `app/bootstrap.php` calls `Env::load()` before
+requiring `inc/db.php`, which turns the values into the constants the rest of
+the app already uses (`DB_HOST`, `FORMFLOW_DB`, …) via `eg_define()` — a define
+that yields to anything already defined. **Anything new that belongs in config
+must be `eg_define()`d and read through `Env::get()`**, or it silently stops
+being configurable per server.
+
+`.env` is in both `.gitignore` and `.deployignore`, so neither a commit nor a
+deploy can carry it or clobber it; `.env.example` is the template, and the
+deploy workflow writes the server's copy from the `ENV_FILE` secret. The older
+`inc/config.local.php` is still loaded *first* and still wins (plain `define()`
+beats `eg_define`), kept only so an already-configured server does not break.
+
+Two traps in that reader, both inherited from FormFlow: **an empty value reads
+as unset**, so `FORMFLOW_WEB_BASE=` returns the default rather than blanking it
+(hence the `off` / `none` sentinel in `db.php` — fixing it in `Env` would fork
+the class away from FormFlow's), and `Env::get()` never calls `putenv()`, so
+nothing leaks into `phpinfo()` or a sibling script in the same process.
+
 Static assets are cache-busted at runtime via `filemtime()` query strings, so
 edits to CSS/JS take effect on reload with no build.
 
@@ -24,7 +46,9 @@ JSON), `login.php`, and `share.php` — the **only public, no-login page** (see
 other PHP file is reached through those.
 
 **The only automated check available** is PHP's syntax linter — there is no test
-suite, no linter config, no CI. Run it over the tree after editing PHP:
+suite and no linter config. It is the `lint` job in the deploy workflow (a push
+that doesn't parse never reaches the server), and it is worth running locally
+over the tree after editing PHP:
 
 ```bash
 find app inc components index.php login.php share.php -name '*.php' -exec php -l {} \;   # all PHP
@@ -153,6 +177,71 @@ back to the `bi-person-circle` icon both when there is no photo and, via
 `onerror`, when the URL 404s. Sessions created before this feature are
 backfilled once in `index.php`; changing the photo in FormFlow reaches
 eGradeBook on the next login.
+
+## Deployment (GitHub → Hostinger over SSH)
+
+Production is **Hostinger**, reached by `rsync` over SSH from
+`.github/workflows/deploy-hostinger.yml` on every push to `master`. It replaced
+an InfinityFree **FTP** deploy, which is still in `deploy.yml` but demoted to
+`workflow_dispatch` only — two workflows firing on one push would publish the
+same commit to two live sites with two different databases. Two jobs: `lint`
+runs `php -l` over the tree, and `deploy` only runs if it passed. There is no
+build and nothing to install on the server — the repo *is* the deployed folder,
+which is the whole point of keeping the app Composer-free.
+
+**It mirrors `FormFlow/.github/workflows/deploy-hostinger.yml` on purpose** —
+same server, same SSH user, same deploy key, and the same secret names in the
+same `Server` environment (`SSH_HOST`, `SSH_USER`, `SSH_PORT` — 65002 on shared
+hosting, `SSH_PRIVATE_KEY`, `SSH_KNOWN_HOSTS`, `SSH_TARGET`, plus an optional
+`SITE_URL`). Sibling apps on one hosting account; diverging here would mean two
+half-remembered setups. Keep them in step when either changes.
+
+Five things about this are load-bearing:
+
+- **`rsync --delete` + `.deployignore`.** The exclude list is not just "don't
+  upload" — rsync will not *delete* an excluded path either, which is the only
+  reason `.env` survives a deploy. The same list keeps
+  `Database/*.sql`, `docs/`, `CLAUDE.md` and `.git/` off a public web root; a
+  database dump at a guessable URL is the failure this is designed against.
+  Patterns are root-anchored (`/docs/`, not `docs/`) so they cannot match a
+  same-named folder nested elsewhere. `SSH_TARGET` must therefore be
+  eGradeBook's **own** folder — aim it at `public_html` and `--delete` removes
+  whatever else lives there (FormFlow, for one).
+- **`ENV_FILE` writes `.env` from a secret** — the same secret name and the
+  same step as FormFlow's deploy. Written to a `.new` file and `mv`'d into
+  place, so a dropped connection cannot leave half a config being read
+  mid-encoding. **An empty secret is a no-op, never a truncation:** an empty
+  `.env` does not error, it silently falls back to the XAMPP defaults in
+  `db.php` (`root`, no password, `egradebook_db`) — the site would break
+  quietly while the deploy still reported success. The step also warns when
+  `DB_AUTO_CREATE` is not `false`, because on shared hosting the MySQL user has
+  no `CREATE DATABASE` privilege and that query then fails on every request
+  (`Database` skips it entirely when the constant is false).
+- **`.htaccess` is live-host-only hardening**, irrelevant under XAMPP: `.env`
+  denied outright, and `app/`, `docs/`, `Database/` and `inc/` return 404.
+  `.env` is the one that matters — it is **plain text**, so a readable `.env`
+  hands over every credential at once, where a `.php` config prints nothing
+  when requested directly.
+  **`inc/logout.php` is explicitly exempted** — it is a real browser navigation
+  (the Logout links in `sheet.php` and `footer.php`), so blanket-blocking `inc/`
+  breaks logging out. It deliberately sets no `php_flag`/`php_value`: those 500
+  under LiteSpeed/FastCGI, so `display_errors` is set in hPanel instead.
+- **The bridge needs one MySQL user on all three databases.** Shared hosting
+  prefixes every name (`u123456789_egradebook`) and hands each database its own
+  user, but the cross-DB `` `db`.`table` `` joins run on a *single* connection —
+  so the user in `config.local.php` needs `SELECT` on FormFlow's and
+  attendance's databases too. Without it, even **login** fails, because
+  `admin_users` is FormFlow's table. `Database`'s `CREATE DATABASE IF NOT
+  EXISTS` also silently no-ops there (no privilege), so the database must be
+  created in hPanel first; the *tables* still self-create as usual.
+- **The host key is pinned via `SSH_KNOWN_HOSTS`, not trusted on sight.**
+  Unset, the workflow falls back to `ssh-keyscan` and prints the line to paste
+  into the secret — the fallback authenticates nothing, so it is a first-run
+  convenience, not the steady state.
+
+Rollback is a push (or re-running an older workflow run). There is no cache to
+purge — `filemtime()` cache-busting means the next reload already has the new
+CSS/JS.
 
 ## Auth & access model
 
@@ -379,7 +468,8 @@ mysqli connection + query helpers moved into `App\Core\Database`.
 
 Layers under `app/`:
 
-- **`Core/`** — `Database` (the single mysqli connection, `escape`/`hasCol`/
+- **`Core/`** — `Env` (the `.env` reader, shared verbatim with FormFlow),
+  `Database` (the single mysqli connection, `escape`/`hasCol`/
   `colExists` + transaction wrappers; it **throws** `RuntimeException` when MySQL
   is unreachable rather than echoing JSON, so `index.php` / `login.php` can answer
   with JSON or an HTML page as appropriate), `Schema::migrate()` (all `CREATE TABLE IF
@@ -604,8 +694,13 @@ theme persisted in `localStorage` under `ff_theme`, shared with FormFlow).
   Follow the prepared-statement path for anything new; if you must interpolate,
   escape or int-cast at the point of interpolation like `SheetRepo` does.
 - `Database`'s constructor also pins the app to **`Asia/Manila` (UTC+8)** for
-  both PHP and the MySQL session — don't set timezones elsewhere. `canAccess()`
-  checks a bridged DB is reachable (advisory, non-fatal).
+  both PHP and the MySQL session — don't set timezones elsewhere. It is
+  `APP_TIMEZONE` in `.env` now, with that same default, and the MySQL offset is
+  **derived from the zone** rather than the old hardcoded `'+08:00'`: setting
+  the zone without recomputing the offset would leave PHP and MySQL in
+  different hours. An unknown zone name logs and falls back rather than taking
+  the app down. `canAccess()` checks a bridged DB is reachable (advisory,
+  non-fatal).
 - Comments are bilingual (English + Filipino) and heavily explain the bridge
   assumptions — keep new schema/bridge changes documented the same way.
 - External deps are CDN `<link>`/`<script>` only (Bootstrap Icons, Google Fonts,

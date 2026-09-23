@@ -1,0 +1,45 @@
+# Paths rsync must neither upload nor delete on the server.
+# Used by .github/workflows/deploy-hostinger.yml via --exclude-from.
+# rsync protects an excluded path on the receiving side as well as skipping
+# it on the sending side, so anything listed here that already exists on the
+# server is left exactly as it is.
+#
+# A leading slash anchors the pattern to the project root. Gusto mo iyon para
+# sa bawat isa rito: ang hindi naka-anchor na "docs/" ay tatama rin sa isang
+# folder na ganoon ang pangalan kahit saan sa loob ng tree.
+#
+# (Kaparehong listahan ng balangkas ng FormFlow/.deployignore -- iisang
+# hosting account, kaya iisang kaugalian.)
+
+# Live configuration. Naka-gitignore ito, kaya wala ito sa checkout -- kung
+# wala ang linyang ito, buburahin ito ng --delete at mawawala ang tanging
+# kopya ng DB credentials ng server sa susunod na push.
+/.env
+/inc/config.local.php
+
+# Version control at CI
+/.git/
+/.gitignore
+/.gitattributes
+/.github/
+/.deployignore
+
+# Mga SQL dump. Ang Database/*.sql ay mababasa sa browser kapag na-upload --
+# isang buong dump ng grades sa likod ng URL na mahuhulaan. Huwag.
+/Database/
+
+# Para sa developer lang, walang pakialam ang pampublikong host.
+# (Ang .env.example ay SINADYANG naiiwan: walang lihim ang laman nito, at
+# ito ang kapit mo kung gusto mong gawin ang .env nang manu-mano sa server
+# sa halip na sa ENV_FILE secret.)
+/docs/
+/README.md
+/CLAUDE.md
+/.vscode/
+/.idea/
+/node_modules/
+
+# OS / editor junk
+Thumbs.db
+desktop.ini
+.DS_Store

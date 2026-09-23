@@ -28,8 +28,15 @@ class Database
             throw new \RuntimeException('DB connection failed: ' . $this->conn->connect_error);
         }
 
-        // Auto-create eGradeBook's own database (idempotent)
-        $this->conn->query("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        /* Auto-create eGradeBook's own database (idempotent).
+           Naka-off ito sa shared hosting (DB_AUTO_CREATE=false sa .env):
+           walang CREATE DATABASE privilege doon ang MySQL user — ang
+           control panel ang gumagawa ng database — kaya isa itong query
+           na tiyak na babagsak sa BAWAT request. Ang select_db sa ibaba
+           ang tunay na tseke; iyon ang magsasabi kung wala talaga. */
+        if (!defined('DB_AUTO_CREATE') || DB_AUTO_CREATE) {
+            $this->conn->query("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        }
 
         if (!$this->conn->select_db(DB_NAME)) {
             throw new \RuntimeException('Cannot select DB: ' . $this->conn->error);
@@ -37,9 +44,26 @@ class Database
 
         $this->conn->set_charset('utf8mb4');
 
-        // ── TIMEZONE — Philippine Standard Time (UTC+8) ──
-        date_default_timezone_set('Asia/Manila');
-        $this->conn->query("SET time_zone = '+08:00'");
+        /* ── TIMEZONE — Philippine Standard Time (UTC+8) bilang default ──
+           Dito lang ito itinatakda, para sabay ang PHP at ang MySQL session
+           (tingnan ang Conventions sa CLAUDE.md). Ang offset ay hinahango sa
+           mismong timezone, hindi hardcoded na '+08:00', kaya ang pagpapalit
+           ng APP_TIMEZONE sa .env ay hindi nag-iiwan ng MySQL na nasa ibang
+           oras kaysa sa PHP. */
+        $tz = defined('APP_TIMEZONE') && APP_TIMEZONE !== '' ? APP_TIMEZONE : 'Asia/Manila';
+        try {
+            $zone = new \DateTimeZone($tz);
+        } catch (\Throwable $e) {
+            // Maling pangalan sa .env — huwag ipabagsak ang buong app dahil doon.
+            error_log('eGradeBook: unknown APP_TIMEZONE "' . $tz . '", falling back to Asia/Manila');
+            $zone = new \DateTimeZone('Asia/Manila');
+        }
+        date_default_timezone_set($zone->getName());
+        $offset = (new \DateTime('now', $zone))->format('P');
+        $stmt = $this->conn->prepare("SET time_zone = ?");
+        $stmt->bind_param('s', $offset);
+        $stmt->execute();
+        $stmt->close();
     }
 
     /* ── thin mysqli passthroughs ── */

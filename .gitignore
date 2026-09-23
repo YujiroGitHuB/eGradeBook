@@ -1,0 +1,20 @@
+# Per-server credentials — ginagawa sa server mismo, hindi kailanman naka-commit.
+# Template: .env.example
+.env
+
+# Legacy na paraan bago ang .env — pinapayagan pa rin ng inc/db.php.
+inc/config.local.php
+
+# Editor / OS junk
+.vscode/
+.idea/
+*.code-workspace
+Thumbs.db
+ehthumbs.db
+desktop.ini
+.DS_Store
+
+# Logs at lokal na dumps
+*.log
+php_errors.log
+*.sql.gz

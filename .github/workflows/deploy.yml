@@ -1,9 +1,12 @@
-name: Deploy to InfinityFree
+name: Deploy to InfinityFree (manual)
 
+# Hostinger na ang deploy target -- tingnan ang deploy-hostinger.yml, na
+# tumatakbo sa bawat push sa master. Itinatago ito bilang daan pabalik sa
+# lumang host, kaya MANU-MANO LANG: kung dalawang workflow ang sabay na
+# pumutok sa iisang push, iisang commit ang mapupunta sa dalawang live site
+# na magkaiba ang database. (Katulad ng ginawa sa FormFlow.)
 on:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
 jobs:
   deploy:
     name: FTP Deploy

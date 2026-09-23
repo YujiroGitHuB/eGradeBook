@@ -1,0 +1,194 @@
+name: Deploy to Hostinger
+
+# Kapareho ng balangkas ng FormFlow/.github/workflows/deploy-hostinger.yml:
+# iisang server, iisang SSH user, iisang deploy key, PAREHONG pangalan ng
+# secrets. Sinadya iyon -- dalawang app sa iisang hosting account, kaya mas
+# mabuting isang kaalaman lang ang tandaan kaysa dalawang bahagyang magkaiba.
+#
+# Ang kaibahan lang: may `lint` job muna rito -- php -l ang tanging
+# automated check ng eGradeBook (tingnan ang CLAUDE.md), kaya doon ito
+# nakakabit.
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+# Dalawang sabay na deploy ay maghahalo ang isinusulat sa iisang document
+# root. Pilahin, at huwag kanselahin ang nasa kalagitnaan: mas masama ang
+# kalahating-na-upload na app kaysa sa naantala.
+concurrency:
+  group: deploy-hostinger
+  cancel-in-progress: false
+
+jobs:
+  lint:
+    name: PHP syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      # Walang test suite ang app; ito ang tanging awtomatikong check.
+      # Mas mabuting mahuli rito ang parse error kaysa sa live site --
+      # ang isang kulang na ";" sa app/ ay puting pahina para sa guro.
+      - name: php -l every PHP file
+        run: |
+          find app inc components index.php login.php share.php -name '*.php' -print0 \
+            | xargs -0 -n1 -P4 php -l
+
+  deploy:
+    name: rsync over SSH
+    needs: lint            # hindi umaabot sa server ang hindi naka-parse
+    runs-on: ubuntu-latest
+    environment: Server
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${SSH_PRIVATE_KEY:?SSH_PRIVATE_KEY secret is not set}"
+          : "${SSH_HOST:?SSH_HOST secret is not set}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Ang naka-pin na SSH_KNOWN_HOSTS ang tunay na tseke. Kung wala,
+          # trust-on-first-use ang kapalit -- walang napapatunayan iyon, kaya
+          # i-pin ito kapag naipakita na ng unang deploy ang fingerprint.
+          if [ -n "${SSH_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::warning::SSH_KNOWN_HOSTS is not set - trusting the host key on first sight."
+            if ! ssh-keyscan -p "${SSH_PORT:-65002}" "$SSH_HOST" > ~/.ssh/known_hosts; then
+              echo "::error::Could not reach $SSH_HOST on port ${SSH_PORT:-65002}. Check SSH_HOST and SSH_PORT, and that SSH is switched on in hPanel."
+              exit 1
+            fi
+          fi
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            echo "::error::No host key came back from $SSH_HOST:${SSH_PORT:-65002} - nothing is listening for SSH there."
+            exit 1
+          fi
+          chmod 600 ~/.ssh/known_hosts
+          echo "Host key in use (copy this into the SSH_KNOWN_HOSTS secret):"
+          cat ~/.ssh/known_hosts
+
+      # Isang linya lang ang isinusuka ng pumalyang rsync para sa isang dosenang
+      # posibleng dahilan. Hiwa-hiwalay itong nagtatanong, kaya sinasabi ng log
+      # kung alin talaga.
+      - name: Check the connection
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_TARGET: ${{ secrets.SSH_TARGET }}
+        run: |
+          set -uo pipefail
+          : "${SSH_USER:?SSH_USER secret is not set}"
+          : "${SSH_TARGET:?SSH_TARGET secret is not set}"
+          SSH="ssh -i $HOME/.ssh/id_deploy -p ${SSH_PORT:-65002} -o BatchMode=yes -o ConnectTimeout=20"
+
+          echo "== 1. Can this key log in? =="
+          if ! $SSH "$SSH_USER@$SSH_HOST" 'echo LOGIN_OK; echo "home: $HOME"'; then
+            echo "::error::The key was refused. Add the PUBLIC key in hPanel > Advanced > SSH Access, and check that SSH_PRIVATE_KEY holds the whole file including the BEGIN and END lines."
+            exit 1
+          fi
+
+          echo "== 2. Does the target folder exist? =="
+          $SSH "$SSH_USER@$SSH_HOST" "ls -d '$SSH_TARGET'" \
+            || echo "::warning::$SSH_TARGET is not there yet. The deploy would create it, which usually means SSH_TARGET is wrong - compare it against the 'home:' line above."
+
+          echo "== 3. Is rsync installed on the server? =="
+          if ! $SSH "$SSH_USER@$SSH_HOST" 'command -v rsync && rsync --version | head -1'; then
+            echo "::error::No rsync on the far end. This plan needs a plain SFTP upload instead of this workflow."
+            exit 1
+          fi
+
+      - name: Sync over SSH
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_TARGET: ${{ secrets.SSH_TARGET }}
+        run: |
+          set -euo pipefail
+          : "${SSH_USER:?SSH_USER secret is not set}"
+          : "${SSH_TARGET:?SSH_TARGET secret is not set}"
+          case "$SSH_TARGET" in
+            /*) ;;
+            *) echo "SSH_TARGET must be an absolute path (e.g. /home/uXXXXXXXXX/domains/example.com/public_html/eGradeBook)"; exit 1 ;;
+          esac
+          # Ang --delete ang pumipigil sa natanggal-nang-file na mabuhay pa ng
+          # isang semestre -- at ito rin ang mapanganib na flag dito. Lahat ng
+          # hindi dapat nitong galawin ay nasa .deployignore, na pinoprotektahan
+          # ng rsync sa PANIG NG SERVER, hindi lang nilalaktawan sa pagpapadala.
+          #
+          # -rlt, hindi -a: walang owner/group/mode na kinokopya mula sa runner.
+          # --chmod na lang ang nagbibigay ng inaasahang permissions ng host.
+          rsync -rltvz --delete --human-readable \
+            --chmod=D755,F644 \
+            --exclude-from=.deployignore \
+            --rsync-path="mkdir -p '$SSH_TARGET' && rsync" \
+            -e "ssh -i ~/.ssh/id_deploy -p ${SSH_PORT:-65002} -o StrictHostKeyChecking=yes" \
+            ./ "$SSH_USER@$SSH_HOST:$SSH_TARGET"
+
+      # Ang .env ay sinadyang wala sa repo at wala sa rsync (tingnan ang
+      # .deployignore), kaya ito ang tanging hakbang na naglalagay nito.
+      # Mula sa secret, kaya wala sa Git ang DB password pero nade-deploy pa
+      # rin. Kapareho ito ng "Write .env on the server" ng FormFlow.
+      - name: Write .env on the server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_TARGET: ${{ secrets.SSH_TARGET }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          set -euo pipefail
+          # Hindi dapat maabot ng WALANG LAMAN na secret ang file. Ang pag-truncate
+          # nito ay hindi mag-e-error nang malinaw -- babalik lang ang app sa XAMPP
+          # defaults ng inc/db.php (root / walang password / egradebook_db), kaya
+          # tahimik na mawawala ang site habang "success" ang iniuulat ng deploy.
+          if [ -z "${ENV_FILE:-}" ]; then
+            echo "::warning::ENV_FILE secret is empty - leaving the server's .env exactly as it is."
+            exit 0
+          fi
+          SSH="ssh -i $HOME/.ssh/id_deploy -p ${SSH_PORT:-65002} -o BatchMode=yes"
+          # Isinusulat sa tabi ng buhay na file at inililipat lang kapag buo na,
+          # para ang naputol na koneksyon ay hindi mag-iwan ng kalahating .env
+          # na binabasa habang may gurong nag-e-encode ng grades.
+          printf '%s\n' "$ENV_FILE" | $SSH "$SSH_USER@$SSH_HOST" \
+            "cat > '$SSH_TARGET/.env.new' && chmod 600 '$SSH_TARGET/.env.new' && mv '$SSH_TARGET/.env.new' '$SSH_TARGET/.env'"
+          # Bilang lang -- ang pag-print ng file ay maglalagay ng password sa log.
+          $SSH "$SSH_USER@$SSH_HOST" "
+            printf 'keys written: '; grep -c '^[A-Za-z_][A-Za-z0-9_]*=' '$SSH_TARGET/.env'
+            for k in DB_HOST DB_NAME DB_USER FORMFLOW_DB ATTENDANCE_DB; do
+              grep -q \"^\$k=\" '$SSH_TARGET/.env' && echo \"  \$k present\" || echo \"  \$k MISSING\"
+            done
+            grep -q '^DB_AUTO_CREATE=false' '$SSH_TARGET/.env' || echo '::warning::DB_AUTO_CREATE is not false - shared hosting has no CREATE DATABASE privilege, so that query fails on every request.'
+          "
+
+      # Ang cache-busting ay filemtime()-based, kaya sapat ang isang hit para
+      # makita agad ang bagong CSS/JS. Login page ang tinatawag (walang session
+      # ang CI) -- 200 o 302 ang inaasahan.
+      - name: Smoke check
+        if: ${{ secrets.SITE_URL != '' }}
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -L "${{ secrets.SITE_URL }}")
+          echo "GET ${{ secrets.SITE_URL }} -> $code"
+          case "$code" in 200|302) ;; *) echo "::warning::Unexpected status $code" ;; esac

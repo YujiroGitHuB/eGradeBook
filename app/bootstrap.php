@@ -18,4 +18,10 @@ spl_autoload_register(function (string $class): void {
     if (is_file($file)) require $file;
 });
 
+/* Basahin ang .env BAGO ang inc/db.php — doon nagiging constants ang
+   laman nito. Isang beses lang kada request (may guard ang Env::load).
+   Walang .env? Walang anumang masama: babalik lang sa XAMPP defaults.
+   Kaparehong kaugalian ng FormFlow/app/bootstrap.php. */
+\App\Core\Env::load(APP_ROOT . '/.env');
+
 require_once APP_ROOT . '/inc/db.php'; // bridge config constants (DB_*, FORMFLOW_DB, ATTENDANCE_DB, ...)

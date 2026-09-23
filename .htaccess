@@ -1,0 +1,59 @@
+# ============================================================
+# .htaccess — para sa LIVE host (Hostinger/LiteSpeed).
+#
+# Sa XAMPP ay halos walang halaga ito; sa isang pampublikong host, ang
+# buong folder ay nasa web root — kaya mababasa sa browser ang alinmang
+# file maliban kung pipigilan. Tatlong entry point lang ang dapat
+# maabot: index.php, login.php, share.php (+ inc/logout.php).
+#
+# Kaparehong balangkas ng FormFlow/.htaccess. Kung mag-500 ang site
+# pagkatapos mag-deploy, ito ang unang suspek — burahin mo lang ito sa
+# server para makabalik agad.
+# ============================================================
+
+# Walang directory listing (hal. /assets/ na naglalabas ng buong listahan).
+Options -Indexes
+
+# NB: sinadyang WALANG php_flag/php_value dito. Sa LiteSpeed/FastCGI (ang
+# setup ng Hostinger) ay minsang 500 ang kapalit ng mga iyon. Ang
+# display_errors = Off ay itinatakda sa hPanel ▸ PHP Configuration.
+
+# Ang app/, docs/ at Database/ ay hindi kailanman tinatawag nang diretso ng
+# browser — dumadaan lahat sa entry points. 404 (hindi 403) para walang
+# maikumpirmang naroon talaga ang file.
+RedirectMatch 404 ^/(?:.*/)?(?:app|docs|Database)/
+
+# Ganoon din ang inc/ — MALIBAN sa inc/logout.php, na tunay na kinakausap
+# ng browser (ang Logout link sa sheet.php at footer.php). Kung babarahan
+# ang buong inc/, hindi na makaka-logout ang guro.
+RedirectMatch 404 ^/(?:.*/)?inc/(?!logout\.php$)
+
+# Dotfiles (.git, .deployignore, ...) — hindi rin. Naka-exempt ang
+# .well-known/ dahil doon dumadaan ang pag-isyu ng SSL certificate.
+RedirectMatch 404 ^/(?:.*/)?\.(?!well-known/)
+
+# MAHALAGA: PLAIN TEXT ang .env — kapag nabasa ito sa browser, lantad ang
+# lahat ng credentials. Iba ito sa lumang inc/config.local.php na .php file
+# (hindi lumalabas ang laman noon kapag na-request nang diretso). Nahuhuli na
+# ito ng dotfile na patakaran sa itaas; nakasulat nang tahasan dito dahil ang
+# isang file na ito ang may pinakamalaking halaga kapag nakalusot.
+<FilesMatch "(?i)^\.env">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+# Mga extension na hinding-hindi dapat ihain kahit maiwan sa folder.
+<FilesMatch "(?i)\.(sql|md|yml|yaml|log|bak|ini|sh|example)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>

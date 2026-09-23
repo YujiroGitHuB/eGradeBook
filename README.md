@@ -107,19 +107,33 @@ There is nothing to compile or install: no Composer, no npm, no build step.
    git clone <repo-url> eGradeBook       # into e.g. C:\xampp\htdocs\
    ```
 
-2. **Check the database settings** in [inc/db.php](inc/db.php) — this is the only
-   file you normally edit:
+2. **Check the database settings.** On XAMPP there is usually nothing to do —
+   `localhost` / `root` / no password, `egradebook_db` auto-created — because
+   those are the built-in defaults in [inc/db.php](inc/db.php).
 
-   ```php
-   define('DB_HOST', 'localhost');
-   define('DB_USER', 'root');
-   define('DB_PASS', '');
+   Anywhere else, copy [.env.example](.env.example) to `.env` and fill it in:
 
-   define('DB_NAME',        'egradebook_db');          // created automatically
-   define('FORMFLOW_DB',    'formflow_db');            // accounts + forms
-   define('ATTENDANCE_DB',  'bcc_qr_attendance_db');   // roster + scans
-   define('FORMFLOW_APP_URL', '');                     // optional link back to FormFlow
+   ```ini
+   DB_HOST=localhost
+   DB_NAME=egradebook_db
+   DB_USER=root
+   DB_PASS=
+   DB_AUTO_CREATE=true          # false on shared hosting — no CREATE privilege
+
+   FORMFLOW_DB=formflow_db              # accounts + forms
+   ATTENDANCE_DB=bcc_qr_attendance_db   # roster + scans
+   FORMFLOW_APP_URL=                    # optional link back to FormFlow
    ```
+
+   Same format and the same reader (`App\Core\Env`) as FormFlow's `.env`, so
+   there is one habit to learn for both apps. `.env` is in `.gitignore` *and*
+   `.deployignore`, so it never reaches the repo and a deploy can never
+   overwrite it. `inc/db.php` is not edited: it reads `.env` and falls back to
+   the defaults key by key.
+
+   > The older `inc/config.local.php` still works and still wins over `.env` —
+   > kept so an already-configured server doesn't break. New setups use `.env`;
+   > there is no template for the old one any more.
 
 3. **Browse to it** — e.g. <http://localhost/eGradeBook/>.
 
@@ -134,6 +148,109 @@ There is nothing to compile or install: no Composer, no npm, no build step.
 > **Access is superadmin-only.** Your FormFlow account must have
 > `role = 'superadmin'`; anyone else gets a 403. All grading data is private to
 > the account that entered it.
+
+## Deploying (Hostinger, GitHub + SSH)
+
+Pushing to `master` deploys automatically:
+[.github/workflows/deploy-hostinger.yml](.github/workflows/deploy-hostinger.yml)
+syntax-checks every PHP file, then `rsync`s the repo over SSH and writes the
+server's config. Nothing is built and nothing is installed on the server — the
+folder *is* the app. The old InfinityFree FTP workflow is still in
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml) as the way back,
+but it is **manual-only** now: two workflows on one push would publish the same
+commit to two live sites with two different databases.
+
+It is deliberately the **same shape as FormFlow's** `deploy-hostinger.yml` —
+same host, same SSH user, same deploy key, same secret names. Two apps on one
+hosting account is easier to keep straight as one habit than as two.
+
+### One-time setup
+
+1. **Create the databases** in hPanel ▸ *Databases* ▸ *MySQL Databases*. On
+   shared hosting `CREATE DATABASE` is not permitted, so eGradeBook cannot make
+   its own — create it yourself (the *tables* still create themselves on the
+   first request).
+
+   > **One MySQL user must reach all three databases.** The bridge is
+   > cross-database SQL over a single connection, so the user in
+   > `config.local.php` needs `SELECT` on the FormFlow and attendance databases
+   > too — not just eGradeBook's. If it only has its own, even *login* fails,
+   > because `admin_users` lives in FormFlow's database.
+
+2. **Enable SSH** — hPanel ▸ *Advanced* ▸ *SSH Access*. Note the host, username
+   and port (**65002** on shared hosting; 22 on a VPS).
+
+3. **Use a deploy key.** If FormFlow already deploys to this account, its key is
+   authorised for the same user — reuse it and skip to step 4. Otherwise:
+
+   ```bash
+   ssh-keygen -t ed25519 -C "github-actions-egradebook" -f ~/.ssh/egradebook_deploy
+   ```
+
+   Paste `~/.ssh/egradebook_deploy.pub` into hPanel ▸ *SSH Access ▸ Manage SSH
+   keys*.
+
+4. **Add the secrets** under GitHub ▸ *Settings* ▸ *Environments* ▸ **Server**:
+
+   | Secret | What goes in it |
+   | --- | --- |
+   | `SSH_HOST` | server IP from hPanel |
+   | `SSH_USER` | `uXXXXXXXXX` |
+   | `SSH_PORT` | `65002` (optional — that is the default) |
+   | `SSH_PRIVATE_KEY` | the whole private key file, `BEGIN`/`END` lines included |
+   | `SSH_KNOWN_HOSTS` | pin after the first run — it prints the line to copy |
+   | `SSH_TARGET` | absolute path, e.g. `/home/uXXXXXXXXX/domains/example.com/public_html/eGradeBook` |
+   | `ENV_FILE` | the finished `.env`, in full |
+   | `SITE_URL` | optional smoke check, e.g. `https://example.com/eGradeBook/login.php` |
+
+   > `SSH_TARGET` must be eGradeBook's **own** folder. The deploy runs
+   > `rsync --delete`, so anything else in that directory is removed — point it
+   > at `public_html` itself and you delete whatever else is in there (FormFlow,
+   > for one).
+
+   `ENV_FILE` is how the credentials get to the server without ever being in
+   Git: build it from [.env.example](.env.example), paste the whole file into
+   the secret, and the deploy writes it to `.env` — atomically, and only when
+   the secret is non-empty, so a blank secret leaves the working config alone
+   rather than silently dropping the site back to the XAMPP defaults. Prefer to
+   keep it by hand on the server? Leave the secret unset and `ssh` the file in
+   once; the deploy will not touch it either way. (This is exactly what
+   FormFlow's deploy does with its own `ENV_FILE`.)
+
+   Set `DB_AUTO_CREATE=false` in it — shared hosting gives the MySQL user no
+   `CREATE DATABASE` privilege, so leaving it on means one guaranteed-to-fail
+   query on every single request. The deploy warns if it is missing.
+
+5. **Push.** Watch it under the *Actions* tab. The first run prints the host key
+   fingerprint — copy that into `SSH_KNOWN_HOSTS` so later runs authenticate the
+   server instead of trusting it on sight.
+
+### What does and doesn't get uploaded
+
+[.deployignore](.deployignore) is the rsync exclude list, and it works both
+ways: those paths are never sent *and* never deleted on the server. It keeps
+`.env` alive, and keeps `Database/*.sql`, `docs/`, `CLAUDE.md`
+and `.git/` off a public web root entirely — a database dump under a guessable
+URL is the one mistake worth designing against.
+
+[.htaccess](.htaccess) is the other half: no directory listing, `.env` denied
+outright, and `app/`, `inc/` (except `logout.php`), `docs/` and `Database/`
+return 404 rather than serving anything. `.env` matters most of the three —
+it is plain text, so a readable `.env` is every credential at once, unlike a
+`.php` config that prints nothing when requested directly. It sets no `php_flag`, which is the usual cause of a 500 on
+Hostinger's LiteSpeed — set `display_errors = Off` in hPanel ▸ *PHP
+Configuration* instead. If the site 500s right after a deploy, delete
+`.htaccess` on the server to get back.
+
+### Notes
+
+- **Sessions are shared with FormFlow through the cookie**, so both apps want to
+  be on the same host and the same scheme. Serve them over HTTPS — `Auth::start()`
+  sets the `Secure` cookie flag whenever the request is HTTPS.
+- Cache-busting is `filemtime()`-based, so new CSS/JS is live on the next reload.
+  There is no cache to purge and no service to restart.
+- Rolling back = pushing the previous commit (or re-running an older run from the
+  *Actions* tab).
 
 ## Using it
 
@@ -160,9 +277,14 @@ to, only read.
 ```
 index.php            Front controller — the page, and every ?api= JSON endpoint
 login.php            Sign-in (bridged to FormFlow accounts)
-inc/db.php           Bridge configuration — the file you edit
+share.php            Public class ranking (the only page with no login)
+inc/db.php           Bridge configuration + built-in defaults
+.env                 Per-server credentials (untracked, never deployed)
+.env.example         Template for the above
+.deployignore        What rsync must not send — or delete — on the server
+.htaccess            Live-host hardening (no listings; app/ + inc/ not servable)
 app/
-  Core/              Database, Schema (all DDL + migrations), Auth, Router, ClassScope
+  Core/              Database, Schema (all DDL + migrations), Auth, Router, ClassScope, Env
   Models/            One repository per table; the cross-database queries live here
   Controllers/       Thin request handlers, one per API domain
   Views/sheet.php    The grading-sheet page
