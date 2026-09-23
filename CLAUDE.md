@@ -217,19 +217,26 @@ Five things about this are load-bearing:
   `DB_AUTO_CREATE` is not `false`, because on shared hosting the MySQL user has
   no `CREATE DATABASE` privilege and that query then fails on every request
   (`Database` skips it entirely when the constant is false).
-- **`.htaccess` is live-host-only hardening**, irrelevant under XAMPP: `.env`
-  denied outright, and `app/`, `docs/`, `Database/` and `inc/` return 404.
-  `.env` is the one that matters — it is **plain text**, so a readable `.env`
-  hands over every credential at once, where a `.php` config prints nothing
-  when requested directly.
-  **`inc/logout.php` is explicitly exempted** — it is a real browser navigation
-  (the Logout links in `sheet.php` and `footer.php`), so blanket-blocking `inc/`
-  breaks logging out. It deliberately sets no `php_flag`/`php_value`: those 500
+- **`.htaccess` is live-host-only hardening**, irrelevant under XAMPP, and
+  **deliberately minimal: `Options -Indexes` plus a `FilesMatch` that denies
+  `.env`.** It is the shape FormFlow already runs on this same host. The first
+  version here also returned 404 for `app/`, `inc/`, `docs/` and `Database/`
+  through three `RedirectMatch` lines, and Hostinger's LiteSpeed answered the
+  **entire site** with a 500 — a config mistake in this file is not a bad page,
+  it is a dead site, so nothing goes in without being tried live. Almost
+  nothing was lost: `docs/` and `Database/` are excluded from the deploy and so
+  are not on the server at all, and `app/`/`inc/` hold classes that print
+  nothing when fetched directly. `.env` is the one that genuinely matters —
+  **plain text**, so one readable request hands over every credential, where a
+  `.php` config prints nothing. No `php_flag`/`php_value` either: those 500
   under LiteSpeed/FastCGI, so `display_errors` is set in hPanel instead.
+  Note for anyone tempted to block `inc/` wholesale if this is ever revisited:
+  **`inc/logout.php` is a real browser navigation** (the Logout links in
+  `sheet.php` and `footer.php`), so a blanket rule there breaks logging out.
 - **The bridge needs one MySQL user on all three databases.** Shared hosting
   prefixes every name (`u123456789_egradebook`) and hands each database its own
   user, but the cross-DB `` `db`.`table` `` joins run on a *single* connection —
-  so the user in `config.local.php` needs `SELECT` on FormFlow's and
+  so the user in `.env` needs `SELECT` on FormFlow's and
   attendance's databases too. Without it, even **login** fails, because
   `admin_users` is FormFlow's table. `Database`'s `CREATE DATABASE IF NOT
   EXISTS` also silently no-ops there (no privilege), so the database must be

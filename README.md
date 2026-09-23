@@ -233,14 +233,17 @@ ways: those paths are never sent *and* never deleted on the server. It keeps
 and `.git/` off a public web root entirely — a database dump under a guessable
 URL is the one mistake worth designing against.
 
-[.htaccess](.htaccess) is the other half: no directory listing, `.env` denied
-outright, and `app/`, `inc/` (except `logout.php`), `docs/` and `Database/`
-return 404 rather than serving anything. `.env` matters most of the three —
-it is plain text, so a readable `.env` is every credential at once, unlike a
-`.php` config that prints nothing when requested directly. It sets no `php_flag`, which is the usual cause of a 500 on
-Hostinger's LiteSpeed — set `display_errors = Off` in hPanel ▸ *PHP
-Configuration* instead. If the site 500s right after a deploy, delete
-`.htaccess` on the server to get back.
+[.htaccess](.htaccess) is the other half: no directory listing, and `.env`
+denied outright. That is deliberately all it does — an earlier version also
+returned 404 for `app/`, `inc/`, `docs/` and `Database/` via `RedirectMatch`,
+and Hostinger's LiteSpeed answered the whole site with a 500. Little is lost:
+`docs/` and `Database/` never reach the server (`.deployignore`), and the files
+under `app/` and `inc/` are classes that print nothing when requested directly.
+`.env` is the one that actually matters, because it is plain text — a readable
+`.env` is every credential at once. It sets no `php_flag` either, for the same
+reason: those 500 under LiteSpeed/FastCGI. Set `display_errors = Off` in
+hPanel ▸ *PHP Configuration* instead. If the site 500s right after a deploy,
+rename `.htaccess` on the server to get back. 
 
 ### Notes
 
