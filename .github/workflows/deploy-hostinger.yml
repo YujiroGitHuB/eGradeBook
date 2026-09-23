@@ -1,5 +1,4 @@
 name: Deploy to Hostinger
-
 # Kapareho ng balangkas ng FormFlow/.github/workflows/deploy-hostinger.yml:
 # iisang server, iisang SSH user, iisang deploy key, PAREHONG pangalan ng
 # secrets. Sinadya iyon -- dalawang app sa iisang hosting account, kaya mas
