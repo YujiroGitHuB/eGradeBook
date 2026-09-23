@@ -65,7 +65,7 @@ eGradeBook owns only its **grading** tables but reads live data from two sibling
 apps' databases **on the same MySQL server** using cross-DB SQL (`` `db`.`table` ``):
 
 - `egradebook_db` — this app's own tables (`grade_activities`, `grade_activity_scores`, `grade_categories`, `grade_settings`, `grade_transmute`, `grade_student_status`, `grade_pinned_sections`, `grade_form_meta`, `grade_attendance_meta`, plus the class-scoping pair `grade_classes` + `grade_roster_snapshot`). The full DDL is `app/Core/Schema.php` — read it rather than guessing at columns.
-- `formflow_db` (`FORMFLOW_DB`) — **login accounts** (`admin_users`), plus `forms`, `form_questions`, `form_responses` that become auto-graded "form" columns.
+- `formflow_db` (`FORMFLOW_DB`) — **login accounts** (`admin_users`), plus the forms and responses that become auto-graded "form" columns. Those are read through FormFlow's **`gradebook_forms` / `gradebook_scores` views**, not its tables (see "Form scores come through FormFlow's contract views" below).
 
 `grade_form_meta` is an **overlay** on FormFlow form columns: the form's title,
 points, and responses stay read-only in FormFlow, but this table lets a teacher
@@ -160,6 +160,44 @@ move to separate physical servers — the joins would need a REST/replication
 bridge instead. There is **no `admin_users` table here**; login (`AuthController`
 via `UserRepo`, called from `login.php`) queries FormFlow's table directly via
 `password_verify`, so credentials stay in sync with FormFlow automatically.
+
+**Form scores come through FormFlow's contract views, not its tables.**
+`FormRepo` reads `gradebook_forms` (`form_id, owner_id, title, created_at,
+total_points`) and `gradebook_scores` (`form_id, section, student_no, score,
+raw_score, penalty, max_score, submitted_at`). Both are defined in FormFlow's
+`Schema::createGradebookViews()`, next to FormFlow's own scoring code. Before,
+`SheetRepo` read `form_responses` / `form_questions` and did the arithmetic
+here. That was a copy in a second repository, out of reach of FormFlow's
+"change the MIRRORs in the same commit" rule, and it had already drifted in two
+edge cases: a negative `penalty_score` added points, and a question worth less
+than 0 shrank the total. Now eGradeBook reads FormFlow's answer instead.
+
+- **`max_score` ≠ `total_points`, and the grade uses `total_points`.** In
+  FormFlow, `max_score` is the student's *own* total. It counts only what they
+  answered, a documented FormFlow product decision. The column `max` is the
+  whole paper, so an unanswered question is a zero. Otherwise a student who was
+  auto-submitted halfway would outscore one who finished. So 9/10 on FormFlow's
+  result card and 9/20 in the gradebook is intended. The per-cell `max` still
+  carries `max_score`, which only matters for a form with no points at all
+  (`c.max || rec.max` in `grades.js`).
+- **Fallback.** When the views are missing, `FormRepo` logs once and reads the
+  tables with the *same* arithmetic, so no grade moves. That happens when
+  FormFlow is not deployed yet, when the host refused `CREATE VIEW`, or when
+  FormFlow was restored from its own backup (which carries the
+  `schema_version` marker but not the views). Deploy order therefore does not
+  matter. The fallback is a copy of the views, so change it together with
+  `createGradebookViews()`. Once every server has the views, it can go.
+- `FormRepo::owns()` and the `admin_users` reads still use FormFlow's tables.
+  They are identity data, with no arithmetic to own.
+- **Why views and not an HTTP API** (decided 2026-09-23): the problem was
+  duplicated rules, not SQL. With the same server, the same owner and shared
+  hosting, an API would add at least two HTTP hops per sheet load (more on
+  Export all), tie up a second PHP process on the account while eGradeBook
+  waits, and need server-to-server auth. The attendance app's `api/v1` is
+  per-student and rate-limited, so it cannot serve a roster. Revisit this if
+  the databases move to separate servers. Attendance got no view because
+  `attendance_tbl` has no scoring rule to own (both apps count
+  `COUNT(DISTINCT date)`).
 
 The **profile photo** rides along with those credentials: `admin_users.avatar`
 is read at login into `$_SESSION['admin_avatar']`. It is the one bridged value
@@ -499,9 +537,11 @@ Layers under `app/`:
   `PinnedRepo`, `ClassRepo` (cross-class re-tag). Cross-DB **bridge** repos,
   isolated here: `RosterRepo`
   (ATTENDANCE_DB roster), `SubjectRepo` (ATTENDANCE_DB subjects), `FormRepo`
-  (FORMFLOW_DB ownership guard), `UserRepo` (FORMFLOW_DB login). `SheetRepo::build()` is the composite read behind the
-  `sheet` action — the one query that spans all three databases, so its cross-DB
-  SQL is kept intact there rather than fragmented.
+  (FORMFLOW_DB: the form columns via FormFlow's contract views, plus the
+  ownership guard), `UserRepo` (FORMFLOW_DB login). `SheetRepo::build()` is the
+  composite read behind the `sheet` action, the one read that spans all three
+  databases. Its attendance SQL is kept intact there. Its FormFlow reads go
+  through `FormRepo`, so the score arithmetic stays in FormFlow.
 - **`Controllers/`** — thin: parse `$_POST/$_GET`, validate, call repos, echo
   JSON. One per API domain: `SectionController`, `SheetController`,
   `ActivityController` (the biggest — CRUD, bulk fill, CSV import, linked mode,
@@ -702,10 +742,12 @@ theme persisted in `localStorage` under `ff_theme`, shared with FormFlow).
 - **SQL style:** repos use **prepared statements** (`prepare` + `bind_param`) —
   there is not one `Database::escape()` call anywhere in `Models/`. The
   deliberate exception is `SheetRepo`, which builds `IN (...)` lists of roster
-  student numbers / form ids by interpolation (mysqli can't bind a list),
-  escaping each element with `real_escape_string` and casting ids to `int`.
-  Follow the prepared-statement path for anything new; if you must interpolate,
-  escape or int-cast at the point of interpolation like `SheetRepo` does.
+  student numbers / activity ids by interpolation, escaping each element with
+  `real_escape_string` and casting ids to `int`. `FormRepo::scores()` shows the
+  prepared way to bind a list: one `?` per element, then
+  `bind_param($types, ...$params)`. Follow the prepared-statement path for
+  anything new. If you must interpolate, escape or int-cast at the point of
+  interpolation like `SheetRepo` does.
 - `Database`'s constructor also pins the app to **`Asia/Manila` (UTC+8)** for
   both PHP and the MySQL session — don't set timezones elsewhere. It is
   `APP_TIMEZONE` in `.env` now, with that same default, and the MySQL offset is

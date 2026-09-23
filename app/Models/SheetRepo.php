@@ -14,7 +14,9 @@ use App\Core\ClassScope;
      • scores    → scores[student_no][key] = {...}
    plus the transmutation bands, per-section settings, categories, and
    status overrides. This is the one read that necessarily spans all
-   three bridged databases, so the cross-DB SQL is kept here intact.
+   three bridged databases. The attendance SQL is kept here intact; the
+   FormFlow reads go through its contract views in FormRepo, so the score
+   arithmetic stays in FormFlow.
    Each column has a unique `key`: forms='f'+id, activities='a'+id,
    attendance='att' — plus 'attf' para sa kalahating Final kapag hati ang
    attendance sa Midterm/Final (tingnan ang `midterm_end`).
@@ -85,17 +87,12 @@ class SheetRepo
         while ($h = $hRes->fetch_assoc()) $hiddenIds[(int)$h['form_id']] = true;
         $hStmt->close();
 
+        /* ginagamit pa ng attendance block sa ibaba */
         $section_esc = $conn->real_escape_string($section);
-        $fres = $conn->query(
-            "SELECT DISTINCT f.id, f.title, f.accent_color, f.created_at
-             FROM " . FORMFLOW_DB . ".forms f
-             WHERE f.owner_id = $admin_id
-             AND f.id IN (
-                 SELECT DISTINCT form_id FROM " . FORMFLOW_DB . ".form_responses
-                 WHERE section = '$section_esc'
-             )
-             ORDER BY f.created_at ASC"
-        );
+        /* Galing sa contract views ng FormFlow (tingnan ang FormRepo): bawas na
+           ang penalty sa score, at ang `total` ay ang points ng buong papel,
+           ayon sa kuwenta ng FormFlow mismo. */
+        $formRepo = new FormRepo($this->db, $this->ownerId);
         /* Antas 1: kanino inaangkin ang bawat form ng section (minsanang desisyon,
            hindi class-scoped kaya tumatalab din sa mga susunod na klase). */
         $claim = (new FormSubjectRepo($this->db, $this->ownerId))->mapForSection($section);
@@ -103,8 +100,8 @@ class SheetRepo
         $formMap = [];   // form_id => index in $columns
         $formIds = [];
         $hiddenForms = [];   // {id,title,subject,reason} — para may maipakita't maibalik ang UI
-        while ($f = $fres->fetch_assoc()) {
-            $fid   = (int)$f['id'];
+        foreach ($formRepo->formsForSection($section) as $f) {
+            $fid   = $f['id'];
             $owned = $claim[$fid] ?? '';
             /* Tahasang itinago sa klaseng ito ang laging nananaig. Kung hindi, ang
                pag-angkin ang magpapasya — pero ang legacy class (blangkong subject)
@@ -123,13 +120,13 @@ class SheetRepo
                 ];
                 continue;
             }
-            $key = 'f' . $f['id'];
+            $key = 'f' . $fid;
             $columns[$key] = [
                 'key'         => $key,
                 'type'        => 'form',
-                'id'          => (int)$f['id'],
+                'id'          => $fid,
                 'title'       => $f['title'],
-                'max'         => 0,
+                'max'         => $f['total'],
                 'responded'   => 0,
                 /* subject na nag-aangkin sa form na ito ('' = walang nag-aangkin) */
                 'owned_subject' => $owned,
@@ -140,54 +137,29 @@ class SheetRepo
                 'category_id' => null,
                 'sort_order'  => 0,
             ];
-            $formMap[(int)$f['id']] = $key;
-            $formIds[] = (int)$f['id'];
+            $formMap[$fid] = $key;
+            $formIds[] = $fid;
         }
 
-        if ($formIds) {
-            $idList = implode(',', $formIds);
+        /* SCORES — per (form, student) in the roster, bawas na ang penalty */
+        foreach ($formRepo->scores($formIds, $rosterNo) as $s) {
+            $k = $formMap[$s['form_id']] ?? null;
+            if (!$k) continue;
+            $sno = $s['student_no'];
+            /* walang points ang mga tanong (hal. lumang form): ang max_score ng
+               unang sagot ang nagiging max ng column, gaya ng dati */
+            if ($columns[$k]['max'] === 0 && $s['max'] > 0)
+                $columns[$k]['max'] = $s['max'];
 
-            /* MAX per form — total points of questions */
-            $mq = $conn->query(
-                "SELECT form_id, COALESCE(SUM(points),0) AS pts
-                 FROM " . FORMFLOW_DB . ".form_questions WHERE form_id IN ($idList) GROUP BY form_id"
-            );
-            while ($m = $mq->fetch_assoc()) {
-                $k = $formMap[(int)$m['form_id']] ?? null;
-                if ($k) $columns[$k]['max'] = (int)$m['pts'];
-            }
-
-            /* SCORES — latest response per (form, student) in the roster */
-            $hasPenalty = $this->db->hasCol('form_responses', 'penalty_score', FORMFLOW_DB);
-            $penSel     = $hasPenalty ? ', penalty_score' : '';
-
-            if ($noList) {
-                $sq = $conn->query(
-                    "SELECT form_id, student_no, score, max_score, submitted_at $penSel
-                     FROM " . FORMFLOW_DB . ".form_responses
-                     WHERE form_id IN ($idList) AND student_no IN ($noList)
-                     ORDER BY submitted_at ASC"
-                );
-                while ($s = $sq->fetch_assoc()) {
-                    $k   = $formMap[(int)$s['form_id']] ?? null;
-                    if (!$k) continue;
-                    $sno = $s['student_no'];
-                    $pen = $hasPenalty ? (int)($s['penalty_score'] ?? 0) : 0;
-                    $eff = max(0, (int)$s['score'] - $pen);
-                    if (($columns[$k]['max'] ?? 0) === 0 && (int)$s['max_score'] > 0)
-                        $columns[$k]['max'] = (int)$s['max_score'];
-
-                    $isNew = !isset($scores[$sno][$k]);
-                    $scores[$sno][$k] = [
-                        'score'   => $eff,
-                        'raw'     => (int)$s['score'],
-                        'penalty' => $pen,
-                        'max'     => (int)$s['max_score'],
-                        'at'      => $s['submitted_at'],
-                    ];
-                    if ($isNew) $columns[$k]['responded']++;
-                }
-            }
+            $isNew = !isset($scores[$sno][$k]);
+            $scores[$sno][$k] = [
+                'score'   => $s['score'],
+                'raw'     => $s['raw'],
+                'penalty' => $s['penalty'],
+                'max'     => $s['max'],
+                'at'      => $s['at'],
+            ];
+            if ($isNew) $columns[$k]['responded']++;
         }
 
         /* 3) ACTIVITY COLUMNS — manual, per owner + class */
