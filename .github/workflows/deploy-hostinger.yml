@@ -185,9 +185,21 @@ jobs:
       # Ang cache-busting ay filemtime()-based, kaya sapat ang isang hit para
       # makita agad ang bagong CSS/JS. Login page ang tinatawag (walang session
       # ang CI) -- 200 o 302 ang inaasahan.
+      #
+      # Ang pagsusuri kung naka-set ang SITE_URL ay nasa LOOB ng script, hindi
+      # sa isang `if:`. Hindi tinatanggap ng GitHub ang `secrets` context sa
+      # if-expression (sa env: at with: lang) -- at hindi lang ang step ang
+      # babagsak: INVALID ang buong workflow file, kaya wala ni isang job ang
+      # tatakbo. Isang hindi mahalagang smoke check ang ikakamatay ng deploy.
       - name: Smoke check
-        if: ${{ secrets.SITE_URL != '' }}
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
         run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' -L "${{ secrets.SITE_URL }}")
-          echo "GET ${{ secrets.SITE_URL }} -> $code"
+          set -uo pipefail
+          if [ -z "${SITE_URL:-}" ]; then
+            echo "SITE_URL secret is not set - skipping the smoke check."
+            exit 0
+          fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -L "$SITE_URL")
+          echo "GET $SITE_URL -> $code"
           case "$code" in 200|302) ;; *) echo "::warning::Unexpected status $code" ;; esac
