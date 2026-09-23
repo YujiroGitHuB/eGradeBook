@@ -238,7 +238,13 @@ Five things about this are load-bearing:
   user, but the cross-DB `` `db`.`table` `` joins run on a *single* connection —
   so the user in `.env` needs `SELECT` on FormFlow's and
   attendance's databases too. Without it, even **login** fails, because
-  `admin_users` is FormFlow's table. `Database`'s `CREATE DATABASE IF NOT
+  `admin_users` is FormFlow's table — it now fails with a sentence rather than
+  a white 500, which is what it did on the first Hostinger deploy. Two places
+  had to change for that: `Database::hasCol()` swallows a failing `SHOW
+  COLUMNS` (from PHP 8.1 mysqli *throws* instead of returning false, so the
+  guard written to keep login working when FormFlow lacks the `avatar` column
+  became the thing that killed it), and `AuthController::handle()` wraps the
+  cross-DB lookup. `Database`'s `CREATE DATABASE IF NOT
   EXISTS` also silently no-ops there (no privilege), so the database must be
   created in hPanel first; the *tables* still self-create as usual.
 - **The host key is pinned via `SSH_KNOWN_HOSTS`, not trusted on sight.**

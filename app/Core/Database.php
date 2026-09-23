@@ -113,16 +113,35 @@ class Database
     }
 
     /* Does $col exist in $table? Optional $db for cross-db tables
-       (e.g. hasCol('form_responses', 'penalty_score', FORMFLOW_DB)). */
+       (e.g. hasCol('form_responses', 'penalty_score', FORMFLOW_DB)).
+
+       Isang TANONG ito, hindi isang utos: "puwede ko bang banggitin ang
+       hanay na ito?" Kaya ang bawat pagkabigo ay `false`, hindi pagsabog.
+       Ang `$r &&` sa dulo ay sapat noong nagbabalik ng false ang mysqli
+       kapag pumalya — pero mula PHP 8.1 ay EXCEPTION na ang default
+       (MYSQLI_REPORT_ERROR|STRICT), kaya ang parehong pagkabigo ay
+       umaakyat na ngayon bilang fatal.
+
+       At hindi ito teoretikal: sa shared hosting, ang SHOW COLUMNS sa
+       database ng FormFlow ay tinatanggihan kapag walang SELECT doon ang
+       MySQL user — kaya ang tsek na ginawa para HINDI mabasag ang login
+       ay siya mismong bumasag nito, na may puting 500. Ang totoong query
+       sa susunod ay babagsak pa rin, pero doon na ito hahawakan, kung
+       saan may mababasang mensaheng maibibigay. */
     public function hasCol(string $table, string $col, ?string $db = null): bool
     {
         $t = $this->conn->real_escape_string($table);
         $c = $this->conn->real_escape_string($col);
-        if ($db !== null) {
-            $d = $this->conn->real_escape_string($db);
-            $r = $this->conn->query("SHOW COLUMNS FROM `$d`.`$t` LIKE '$c'");
-        } else {
-            $r = $this->conn->query("SHOW COLUMNS FROM `$t` LIKE '$c'");
+        try {
+            if ($db !== null) {
+                $d = $this->conn->real_escape_string($db);
+                $r = $this->conn->query("SHOW COLUMNS FROM `$d`.`$t` LIKE '$c'");
+            } else {
+                $r = $this->conn->query("SHOW COLUMNS FROM `$t` LIKE '$c'");
+            }
+        } catch (\Throwable $e) {
+            error_log('eGradeBook hasCol(' . ($db !== null ? $db . '.' : '') . $table . '.' . $col . ') failed: ' . $e->getMessage());
+            return false;
         }
         return $r && $r->num_rows > 0;
     }

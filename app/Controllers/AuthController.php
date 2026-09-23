@@ -33,7 +33,20 @@ class AuthController
             return 'Please fill in all fields.';
         }
 
-        $user = (new UserRepo($this->db))->findByUsername($username);
+        /* Ang paghahanap na ito ay tumatawid sa database ng FormFlow. Sa
+           shared hosting, iyon ang unang bagay na babagsak kapag walang
+           SELECT doon ang MySQL user — at dating puting 500 ang kalabasan,
+           dahil walang humahawak sa mysqli exception sa daanang ito. Ang
+           detalye ay sa log; sa guro ay isang pangungusap (tingnan ang
+           "Errors: log the detail, show a sentence" sa CLAUDE.md). */
+        try {
+            $user = (new UserRepo($this->db))->findByUsername($username);
+        } catch (\Throwable $e) {
+            error_log('eGradeBook login lookup failed: ' . $e);
+            return 'Sign-in is unavailable: this app cannot read the accounts database. '
+                 . 'Ask your administrator to check the database permissions.';
+        }
+
         if ($user && password_verify($password, $user['password'])) {
             session_regenerate_id(true);
             $_SESSION['admin_id']       = $user['id'];
