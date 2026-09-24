@@ -152,7 +152,7 @@ class ResetRepo
 
         $names = [];
         $ids = implode(',', array_map('intval', array_keys($counts)));
-        $nr = $this->db->query(
+        $nr = $this->db->formflow()->query(
             "SELECT id, username, full_name FROM " . FORMFLOW_DB . ".admin_users WHERE id IN ($ids)"
         );
         if ($nr) {

@@ -5,27 +5,52 @@ namespace App\Core;
 use mysqli;
 
 /* ============================================================
-   Database — single mysqli connection to the MySQL server that
-   hosts all three databases (egradebook_db + the FormFlow &
-   attendance bridges). The cross-DB `db`.`table` queries in the
-   repositories depend on this being ONE server; see inc/db.php
-   for the bridge assumption.
+   Database — the mysqli connection to eGradeBook's own database,
+   plus (on demand) the connections the two bridges are read over.
+
+   By default there is ONE connection and the bridges are cross-DB
+   `db`.`table` queries on it — true of root on XAMPP, where one user
+   reads every database. That cannot work on Hostinger's shared plans:
+   every database there has exactly ONE user, and that user can never
+   be granted a second database. So formflow() / attendance() return
+   $this unless FORMFLOW_DB_USER / ATTENDANCE_DB_USER name that
+   database's own login, in which case they open a second connection
+   as that user. Same idea as FormFlow's ROSTER_DB_USER.
+
+   The repos keep their fully-qualified `db`.`table` names either way:
+   a connection logged in as FormFlow's user can read FormFlow's tables
+   by their full name. What a split connection CANNOT do is join across
+   databases in one statement, so no query may mention two of them —
+   AccessRepo::listAccounts() and RosterRepo::topUpSnapshot() were
+   split into two reads for exactly that reason.
    ============================================================ */
 class Database
 {
     public mysqli $conn;
 
-    public function __construct()
+    /** Opened on first use, then reused for the rest of the request. */
+    private ?Database $formflowConn = null;
+    private ?Database $attendanceConn = null;
+
+    /* $login = null → eGradeBook's own database (DB_* constants).
+       $login = ['host','user','pass','name'] → a bridge login; never
+       auto-creates, because the database belongs to another app. */
+    public function __construct(?array $login = null)
     {
+        $host = $login['host'] ?? DB_HOST;
+        $user = $login['user'] ?? DB_USER;
+        $pass = $login['pass'] ?? DB_PASS;
+        $name = $login['name'] ?? DB_NAME;
+
         /* Nag-THROW, hindi nag-e-echo. Dati ay JSON ang isinusulat nito at
            agad na exit — kaya kahit PAGE load ay hubad na JSON blob ang lumalabas
            (kasama pa ang connect_error, na may host/user). Ang tumatawag ang
            bahalang magpasya kung JSON ba o HTML ang nababagay; tingnan ang
            index.php at login.php. */
-        $this->conn = @new mysqli(DB_HOST, DB_USER, DB_PASS);
+        $this->conn = @new mysqli($host, $user, $pass);
 
         if ($this->conn->connect_error) {
-            throw new \RuntimeException('DB connection failed: ' . $this->conn->connect_error);
+            throw new \RuntimeException('DB connection failed (' . $name . '): ' . $this->conn->connect_error);
         }
 
         /* Auto-create eGradeBook's own database (idempotent).
@@ -34,12 +59,12 @@ class Database
            control panel ang gumagawa ng database — kaya isa itong query
            na tiyak na babagsak sa BAWAT request. Ang select_db sa ibaba
            ang tunay na tseke; iyon ang magsasabi kung wala talaga. */
-        if (!defined('DB_AUTO_CREATE') || DB_AUTO_CREATE) {
+        if ($login === null && (!defined('DB_AUTO_CREATE') || DB_AUTO_CREATE)) {
             $this->conn->query("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
         }
 
-        if (!$this->conn->select_db(DB_NAME)) {
-            throw new \RuntimeException('Cannot select DB: ' . $this->conn->error);
+        if (!$this->conn->select_db($name)) {
+            throw new \RuntimeException('Cannot select DB ' . $name . ': ' . $this->conn->error);
         }
 
         $this->conn->set_charset('utf8mb4');
@@ -101,7 +126,43 @@ class Database
     }
     public function close(): void
     {
+        if ($this->formflowConn !== null && $this->formflowConn !== $this) $this->formflowConn->close();
+        if ($this->attendanceConn !== null && $this->attendanceConn !== $this) $this->attendanceConn->close();
         $this->conn->close();
+    }
+
+    /* ── the two bridges ──
+       Ang connection kung saan binabasa ang FormFlow (admin_users, forms,
+       gradebook_* views) at ang attendance (students_tbl, attendance_tbl).
+
+       $this mismo kapag blangko ang *_DB_USER — ang dating iisang koneksyon,
+       kaya walang nagbabago sa XAMPP o sa server na gumagana na. Kung hindi,
+       pangalawang login bilang sariling user ng database na iyon: iyon lang
+       ang paraan sa Hostinger, kung saan iisang user lang ang bawat database.
+
+       Binubuksan lang kapag unang ginamit — ang pag-save ng score ay hindi
+       dapat magbayad ng tatlong login. Nag-THROW kapag tinanggihan ang login,
+       gaya ng constructor, kaya ang maling password ay nahuhuli ng parehong
+       catch na humahawak na ngayon sa "walang access sa database na iyon". */
+    public function formflow(): Database
+    {
+        return $this->formflowConn ??= $this->bridge(FORMFLOW_DB, FORMFLOW_DB_USER, FORMFLOW_DB_PASS, FORMFLOW_DB_HOST);
+    }
+
+    public function attendance(): Database
+    {
+        return $this->attendanceConn ??= $this->bridge(ATTENDANCE_DB, ATTENDANCE_DB_USER, ATTENDANCE_DB_PASS, ATTENDANCE_DB_HOST);
+    }
+
+    private function bridge(string $name, string $user, string $pass, string $host): Database
+    {
+        if (trim($user) === '') return $this;
+        return new Database([
+            'host' => $host !== '' ? $host : DB_HOST,
+            'user' => $user,
+            'pass' => $pass,
+            'name' => $name,
+        ]);
     }
 
     /* Quick check: is a bridged database accessible? (flagged to the user,

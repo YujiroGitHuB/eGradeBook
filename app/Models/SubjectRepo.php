@@ -14,9 +14,10 @@ class SubjectRepo
 {
     private Database $db;
 
+    /* Attendance lang ang binabasa rito (Database::attendance()). */
     public function __construct(Database $db)
     {
-        $this->db = $db;
+        $this->db = $db->attendance();
     }
 
     /* Distinct non-empty subjects seen for a section, alphabetical. */

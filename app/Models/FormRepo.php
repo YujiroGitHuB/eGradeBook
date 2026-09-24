@@ -35,9 +35,11 @@ class FormRepo
     /* false once the views have failed in this request — one log line, not two */
     private bool $viaViews = true;
 
+    /* Every query here reads FormFlow, so this holds the FormFlow connection
+       (the app's own one when FORMFLOW_DB_USER is blank; Database::formflow()). */
     public function __construct(Database $db, int $ownerId)
     {
-        $this->db = $db;
+        $this->db = $db->formflow();
         $this->ownerId = $ownerId;
     }
 

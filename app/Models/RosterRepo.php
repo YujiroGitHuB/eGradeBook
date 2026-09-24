@@ -13,6 +13,10 @@ use App\Core\ClassScope;
    For NON-legacy classes it also maintains a per-class snapshot
    (grade_roster_snapshot) so a class keeps its students/names even if the
    upstream roster later changes — see rosterForClass().
+
+   TWO connections: the live roster is read over Database::attendance()
+   (the attendance DB's own login on Hostinger), the snapshot is written
+   over the app's own. No query here names both databases.
    ============================================================ */
 class RosterRepo
 {
@@ -36,23 +40,38 @@ class RosterRepo
         return $this->snapshotRoster($c, $ownerId);
     }
 
-    /* INSERT IGNORE the current live roster into this class's snapshot (cross-DB
-       INSERT ... SELECT on the same server). Idempotent; adds new enrollees,
-       never overwrites a captured name. */
+    /* INSERT IGNORE the current live roster into this class's snapshot.
+       Idempotent; adds new enrollees, never overwrites a captured name.
+
+       Dalawang hakbang, hindi na iisang INSERT ... SELECT na tumatawid sa
+       database: kapag may sariling login ang attendance (Hostinger), walang
+       iisang user na nakakabasa roon AT nakakasulat dito. Basahin muna ang
+       live roster sa attendance connection, saka isulat dito. NULL → '' dahil
+       NOT NULL DEFAULT '' ang mga hanay — iyon din ang gagawin ng IGNORE. */
     private function topUpSnapshot(ClassScope $c, int $ownerId): void
     {
+        $live = $this->roster($c->section);
+        if (!$live) return;
+
         $sec = $c->section;
         $sy  = $c->schoolYear;
         $sem = $c->semester;
         $sub = $c->subject;
-        $stmt = $this->db->prepare(
-            "INSERT IGNORE INTO grade_roster_snapshot (owner_id, school_year, semester, section, subject, student_no, fullname, course)
-             SELECT ?, ?, ?, ?, ?, student_no, fullname, course
-             FROM " . ATTENDANCE_DB . "." . ATTENDANCE_TABLE . " WHERE section=?"
-        );
-        $stmt->bind_param('isssss', $ownerId, $sy, $sem, $sec, $sub, $sec);
-        $stmt->execute();
-        $stmt->close();
+        foreach (array_chunk($live, 200) as $chunk) {
+            $rows   = implode(',', array_fill(0, count($chunk), '(?,?,?,?,?,?,?,?)'));
+            $params = [];
+            foreach ($chunk as $r) {
+                array_push($params, $ownerId, $sy, $sem, $sec, $sub,
+                    (string)$r['student_no'], (string)($r['fullname'] ?? ''), (string)($r['course'] ?? ''));
+            }
+            $stmt = $this->db->prepare(
+                "INSERT IGNORE INTO grade_roster_snapshot (owner_id, school_year, semester, section, subject, student_no, fullname, course)
+                 VALUES $rows"
+            );
+            $stmt->bind_param(str_repeat('isssssss', count($chunk)), ...$params);
+            $stmt->execute();
+            $stmt->close();
+        }
     }
 
     /* Read this class's frozen roster (same shape as the live roster). */
@@ -84,8 +103,9 @@ class RosterRepo
                 WHERE section IS NOT NULL AND section <> ''
                 GROUP BY section, course
                 ORDER BY course, section";
-        $res = $this->db->query($sql);
-        if (!$res) throw new \Exception('Cannot access attendance DB: ' . $this->db->error());
+        $att = $this->db->attendance();
+        $res = $att->query($sql);
+        if (!$res) throw new \Exception('Cannot access attendance DB: ' . $att->error());
         $sections = [];
         while ($row = $res->fetch_assoc()) {
             $sections[] = [
@@ -100,13 +120,14 @@ class RosterRepo
     /* Full roster rows for a section (student_no, fullname, course, section). */
     public function roster(string $section): array
     {
-        $stmt = $this->db->prepare(
+        $att  = $this->db->attendance();
+        $stmt = $att->prepare(
             "SELECT student_no, fullname, course, section
              FROM " . ATTENDANCE_DB . "." . ATTENDANCE_TABLE . "
              WHERE section = ?
              ORDER BY fullname"
         );
-        if (!$stmt) throw new \Exception('Attendance query error: ' . $this->db->error());
+        if (!$stmt) throw new \Exception('Attendance query error: ' . $att->error());
         $stmt->bind_param('s', $section);
         $stmt->execute();
         $rs = $stmt->get_result();
@@ -138,7 +159,7 @@ class RosterRepo
        callers only; para sa isang klase gamitin ang studentNosForClass(). */
     public function studentNos(string $section): array
     {
-        $stmt = $this->db->prepare(
+        $stmt = $this->db->attendance()->prepare(
             "SELECT student_no FROM " . ATTENDANCE_DB . "." . ATTENDANCE_TABLE . " WHERE section=?"
         );
         $stmt->bind_param('s', $section);

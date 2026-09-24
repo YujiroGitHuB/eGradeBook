@@ -35,7 +35,8 @@ class AuthController
 
         /* Ang paghahanap na ito ay tumatawid sa database ng FormFlow. Sa
            shared hosting, iyon ang unang bagay na babagsak kapag walang
-           SELECT doon ang MySQL user — at dating puting 500 ang kalabasan,
+           SELECT doon ang MySQL user (o blangko/mali ang FORMFLOW_DB_USER
+           sa Hostinger) — at dating puting 500 ang kalabasan,
            dahil walang humahawak sa mysqli exception sa daanang ito. Ang
            detalye ay sa log; sa guro ay isang pangungusap (tingnan ang
            "Errors: log the detail, show a sentence" sa CLAUDE.md). */

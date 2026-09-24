@@ -14,9 +14,12 @@ class UserRepo
 {
     private Database $db;
 
+    /* Lahat ng query rito ay sa FormFlow, kaya ang FormFlow connection na
+       agad ang hawak (ang app connection mismo kapag blangko ang
+       FORMFLOW_DB_USER — tingnan ang Database::formflow()). */
     public function __construct(Database $db)
     {
-        $this->db = $db;
+        $this->db = $db->formflow();
     }
 
     public function findByUsername(string $username): ?array

@@ -62,7 +62,9 @@ tab (each `?api=` action returns `{success: bool, ...}`).
 ## The cross-database bridge (most important architectural fact)
 
 eGradeBook owns only its **grading** tables but reads live data from two sibling
-apps' databases **on the same MySQL server** using cross-DB SQL (`` `db`.`table` ``):
+apps' databases using fully qualified SQL (`` `db`.`table` ``), over one
+connection or one login per database (see "Each bridge can have its own login"
+below):
 
 - `egradebook_db` — this app's own tables (`grade_activities`, `grade_activity_scores`, `grade_categories`, `grade_settings`, `grade_transmute`, `grade_student_status`, `grade_pinned_sections`, `grade_form_meta`, `grade_attendance_meta`, plus the class-scoping pair `grade_classes` + `grade_roster_snapshot`). The full DDL is `app/Core/Schema.php` — read it rather than guessing at columns.
 - `formflow_db` (`FORMFLOW_DB`) — **login accounts** (`admin_users`), plus the forms and responses that become auto-graded "form" columns. Those are read through FormFlow's **`gradebook_forms` / `gradebook_scores` views**, not its tables (see "Form scores come through FormFlow's contract views" below).
@@ -155,11 +157,37 @@ column is ignored while split (the date decides) and comes back into play the
 moment the cutoff is cleared.
 - `bcc_qr_attendance_db` (`ATTENDANCE_DB`) — the **student roster** (`students_tbl`: sections, names, courses) and the **attendance scans** (`attendance_tbl`, read only when the attendance column is enabled).
 
-All three constants live in `inc/db.php`. This design breaks if the databases
-move to separate physical servers — the joins would need a REST/replication
-bridge instead. There is **no `admin_users` table here**; login (`AuthController`
-via `UserRepo`, called from `login.php`) queries FormFlow's table directly via
-`password_verify`, so credentials stay in sync with FormFlow automatically.
+All three constants live in `inc/db.php`. There is **no `admin_users` table
+here**; login (`AuthController` via `UserRepo`, called from `login.php`) queries
+FormFlow's table directly via `password_verify`, so credentials stay in sync
+with FormFlow automatically.
+
+**Each bridge can have its own login: `FORMFLOW_DB_USER` / `ATTENDANCE_DB_USER`
+(+ `_PASS`, `_HOST`).** Blank (XAMPP) means one connection whose user reads all
+three databases, which is the original behaviour. Set, `Database::formflow()` /
+`Database::attendance()` open a second connection as that database's own user,
+lazily and once per request. This is FormFlow's `ROSTER_DB_USER` idea, applied
+to both bridges, and it is **required on Hostinger**, where each database has
+exactly one user and that user can never be granted another database (see
+Deployment). Two rules follow from it:
+
+- **A bridge read goes over the bridge's connection.** Use
+  `$db->formflow()` / `$db->attendance()`, never `$db` directly, for anything
+  that names `FORMFLOW_DB` or `ATTENDANCE_DB`. `UserRepo`, `FormRepo` and
+  `SubjectRepo` hold the bridge connection as their `$db`, since every query
+  they run is a bridge read. `RosterRepo`, `AccessRepo`, `ResetRepo` and the
+  attendance block in `SheetRepo` switch per query. Keep the fully qualified
+  `` `db`.`table` `` names. They work on either connection.
+- **No single statement may name two databases.** No user can see both sides of
+  such a query. `AccessRepo::listAccounts()` (it had a `LEFT JOIN` onto
+  `grade_app_access`) and `RosterRepo::topUpSnapshot()` (it was an
+  `INSERT … SELECT` from `students_tbl`) are now two queries each, merged in PHP.
+  Verified on 2026-09-24: sheet, login, access and snapshot output is
+  byte-identical between the old single-root code and the new code running
+  as three one-database users.
+
+That also means the three databases no longer need to share one MySQL server:
+the `_HOST` settings can point elsewhere.
 
 **Form scores come through FormFlow's contract views, not its tables.**
 `FormRepo` reads `gradebook_forms` (`form_id, owner_id, title, created_at,
@@ -271,12 +299,17 @@ Five things about this are load-bearing:
   Note for anyone tempted to block `inc/` wholesale if this is ever revisited:
   **`inc/logout.php` is a real browser navigation** (the Logout links in
   `sheet.php` and `footer.php`), so a blanket rule there breaks logging out.
-- **The bridge needs one MySQL user on all three databases.** Shared hosting
-  prefixes every name (`u123456789_egradebook`) and hands each database its own
-  user, but the cross-DB `` `db`.`table` `` joins run on a *single* connection —
-  so the user in `.env` needs `SELECT` on FormFlow's and
-  attendance's databases too. Without it, even **login** fails, because
-  `admin_users` is FormFlow's table — it now fails with a sentence rather than
+- **Each bridge needs its database's own login in `.env`.** Hostinger prefixes
+  every name (`u123456789_egradebook`) and gives each database **exactly one
+  user, which cannot be granted a second database**, so eGradeBook's user is
+  refused on FormFlow's and attendance's tables ("SELECT command denied").
+  Set `FORMFLOW_DB_USER`/`_PASS` to FormFlow's own DB login and
+  `ATTENDANCE_DB_USER`/`_PASS` to the attendance DB's (the same login as
+  FormFlow's `ROSTER_DB_USER`). The deploy's `.env` step warns when either is
+  blank. Note this puts those two apps' full-privilege passwords in
+  eGradeBook's `.env`, although eGradeBook only reads with them. On Hostinger
+  there is no read-only alternative. Without them, even **login** fails, because
+  `admin_users` is FormFlow's table. It now fails with a sentence rather than
   a white 500, which is what it did on the first Hostinger deploy. Two places
   had to change for that: `Database::hasCol()` swallows a failing `SHOW
   COLUMNS` (from PHP 8.1 mysqli *throws* instead of returning false, so the

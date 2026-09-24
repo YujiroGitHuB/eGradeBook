@@ -43,15 +43,22 @@ class AccessRepo
     /* Bawat FormFlow account + kung may access na ba rito. Superadmin man o
        hindi, isinasama lahat: kailangang makita ng namamahala ang buong
        listahan, at ang `role` ang nagpapaliwanag kung bakit may ilang
-       laging naka-on. */
+       laging naka-on.
+
+       Dalawang basa, hindi JOIN: nasa ibang database ang admin_users, at sa
+       Hostinger ay ibang login ang nakakabasa roon (Database::formflow()) —
+       walang iisang user na nakakakita ng dalawang table nang sabay. */
     public function listAccounts(): array
     {
-        $sql = "SELECT u.id, u.username, u.full_name, u.role,
-                       (a.admin_id IS NOT NULL) AS granted
-                  FROM " . FORMFLOW_DB . ".admin_users u
-                  LEFT JOIN grade_app_access a ON a.admin_id = u.id
-                 ORDER BY u.full_name ASC, u.username ASC";
-        $res = $this->db->query($sql);
+        $granted = [];
+        $g = $this->db->query("SELECT admin_id FROM grade_app_access");
+        if ($g) while ($r = $g->fetch_assoc()) $granted[(int)$r['admin_id']] = true;
+
+        $res = $this->db->formflow()->query(
+            "SELECT id, username, full_name, role
+               FROM " . FORMFLOW_DB . ".admin_users
+              ORDER BY full_name ASC, username ASC"
+        );
         $out = [];
         if ($res) {
             while ($r = $res->fetch_assoc()) {
@@ -60,7 +67,7 @@ class AccessRepo
                     'username'  => (string)$r['username'],
                     'full_name' => (string)($r['full_name'] ?: $r['username']),
                     'role'      => (string)($r['role'] ?? 'admin'),
-                    'granted'   => (int)$r['granted'] === 1,
+                    'granted'   => isset($granted[(int)$r['id']]),
                 ];
             }
         }
@@ -72,7 +79,7 @@ class AccessRepo
     public function accountExists(int $adminId): bool
     {
         if ($adminId <= 0) return false;
-        $stmt = $this->db->prepare("SELECT 1 FROM " . FORMFLOW_DB . ".admin_users WHERE id = ? LIMIT 1");
+        $stmt = $this->db->formflow()->prepare("SELECT 1 FROM " . FORMFLOW_DB . ".admin_users WHERE id = ? LIMIT 1");
         $stmt->bind_param('i', $adminId);
         $stmt->execute();
         $found = $stmt->get_result()->num_rows > 0;

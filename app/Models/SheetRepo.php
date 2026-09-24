@@ -237,7 +237,10 @@ class SheetRepo
                class carries a subject, we also filter the scans by that subject
                (attendance_tbl records `subject`); the legacy class (subject='')
                pools all subjects like before. */
-            $attSubjFilter = ($subj !== '') ? " AND subject='" . $conn->real_escape_string($subj) . "'" : '';
+            /* Sa attendance connection binabasa ang mga scan (sariling login ng
+               attendance DB sa Hostinger — tingnan ang Database::attendance()). */
+            $attConn = $this->db->attendance()->conn;
+            $attSubjFilter = ($subj !== '') ? " AND subject='" . $attConn->real_escape_string($subj) . "'" : '';
 
             /* HATI SA MIDTERM/FINAL. Walang term/period column ang
                attendance_tbl na masasandalan, kaya ang petsa lang ang batayan:
@@ -247,22 +250,22 @@ class SheetRepo
                eksakto, kaya walang nagbabago sa mga umiiral nang sheet. */
             $attCutoff = trim((string)($attMeta['midterm_end'] ?? ''));
             $split  = ((int)$settings['term_mode'] === 1 && $attCutoff !== '');
-            $cutEsc = $conn->real_escape_string($attCutoff);
+            $cutEsc = $attConn->real_escape_string($attCutoff);
 
             /* Isang attendance column: bilangin ang mga session (at ang dalo ng
                bawat estudyante) sa loob ng ibinigay na saklaw ng petsa. */
             $buildAtt = function (string $key, string $title, string $dateFilter, string $term,
                                   $catId, float $weight, int $sortOrder, bool $termLocked)
-                        use ($conn, $section_esc, $attSubjFilter, $noList, $students, &$columns, &$scores) {
+                        use ($attConn, $section_esc, $attSubjFilter, $noList, $students, &$columns, &$scores) {
                 $totalSessions = 0;
-                $sq = $conn->query("SELECT COUNT(DISTINCT `date`) c FROM " . ATTENDANCE_DB . ".attendance_tbl
+                $sq = $attConn->query("SELECT COUNT(DISTINCT `date`) c FROM " . ATTENDANCE_DB . ".attendance_tbl
                     WHERE section='$section_esc'$attSubjFilter$dateFilter");
                 if ($sq && ($sx = $sq->fetch_assoc())) $totalSessions = (int)$sx['c'];
 
                 /* present (distinct dates) per rostered student */
                 $present = [];
                 if ($noList) {
-                    $pq = $conn->query(
+                    $pq = $attConn->query(
                         "SELECT student_no, COUNT(DISTINCT `date`) c FROM " . ATTENDANCE_DB . ".attendance_tbl
                          WHERE section='$section_esc'$attSubjFilter$dateFilter AND student_no IN ($noList) GROUP BY student_no"
                     );

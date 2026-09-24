@@ -180,6 +180,11 @@ jobs:
               grep -q \"^\$k=\" '$SSH_TARGET/.env' && echo \"  \$k present\" || echo \"  \$k MISSING\"
             done
             grep -q '^DB_AUTO_CREATE=false' '$SSH_TARGET/.env' || echo '::warning::DB_AUTO_CREATE is not false - shared hosting has no CREATE DATABASE privilege, so that query fails on every request.'
+            # Hostinger: iisang user lang ang bawat database, kaya kung wala ang
+            # sariling login ng FormFlow/attendance, tinatanggihan ang lahat ng
+            # bridge read -- pati ang login. Tingnan ang Database::formflow().
+            grep -q '^FORMFLOW_DB_USER=.' '$SSH_TARGET/.env' || echo '::warning::FORMFLOW_DB_USER is blank - on Hostinger every database has one user, so login and the form columns are refused without the FormFlow database login.'
+            grep -q '^ATTENDANCE_DB_USER=.' '$SSH_TARGET/.env' || echo '::warning::ATTENDANCE_DB_USER is blank - on Hostinger every database has one user, so the roster and attendance are refused without the attendance database login.'
           "
 
       # Ang cache-busting ay filemtime()-based, kaya sapat ang isang hit para

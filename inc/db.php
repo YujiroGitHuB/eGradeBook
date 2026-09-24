@@ -12,13 +12,15 @@
    (forms/form_responses scores AND the shared admin_users login)
    and the attendance database (roster).
 
-   ASSUMPTION: the three databases are still on ONE MySQL server
-   (formflow_db, the attendance DB, and the grading DB) — so the
-   `database_name`.`table` cross-db queries work using a SINGLE
-   mysqli connection. If you move eGradeBook to a DIFFERENT physical
-   DB server, the direct SQL joins here won't work — you'll need a
-   different approach (e.g. REST API bridge into FormFlow, or DB
-   replication). See App\Models\RosterRepo / FormRepo / UserRepo.
+   The bridges are read as `database_name`.`table` SQL. With the
+   *_DB_USER settings blank (XAMPP) that is ONE mysqli connection
+   whose user can read all three databases. On Hostinger each
+   database has exactly one user, so FORMFLOW_DB_USER /
+   ATTENDANCE_DB_USER give each bridge its own login and its own
+   connection (App\Core\Database::formflow() / attendance()). Either
+   way no single query names two databases, so the bridge no longer
+   depends on one user seeing all three. See App\Models\RosterRepo /
+   FormRepo / UserRepo.
 
    ── SAAN GALING ANG HALAGA ────────────────────────────────────
    Tatlong antas, mula sa pinakamalakas:
@@ -74,6 +76,25 @@ eg_define('DB_AUTO_CREATE', Env::bool('DB_AUTO_CREATE', true));
 eg_define('FORMFLOW_DB', Env::get('FORMFLOW_DB', 'formflow_db'));            // admin_users, forms, form_questions, form_responses
 eg_define('ATTENDANCE_DB', Env::get('ATTENDANCE_DB', 'bcc_qr_attendance_db')); // roster + attendance scans
 eg_define('ATTENDANCE_TABLE', Env::get('ATTENDANCE_TABLE', 'students_tbl'));
+
+/* ── HIWALAY na login para sa bawat bridge — IWANANG BLANGKO sa XAMPP ──
+   Blangko = binabasa ang database na iyon gamit ang DB_USER sa itaas (ang
+   dating cross-database query sa iisang koneksyon; gumagana dahil nababasa
+   ng root ang lahat).
+
+   KAILANGAN sa Hostinger: iisang user lang ang bawat database doon, at hindi
+   ito mabibigyan ng pangalawang database — kaya tinatanggihan ang user ng
+   eGradeBook sa mga table ng FormFlow at ng attendance, at pati ang LOGIN ay
+   babagsak. Ilagay dito ang sariling user/password ng database na iyon — ang
+   mismong ginagamit ng FormFlow at ng bccsasqr. BUMABASA LANG ang eGradeBook
+   sa mga iyon. Kapareho ng ROSTER_DB_USER ng FormFlow. Tingnan ang
+   App\Core\Database::formflow() / attendance(). */
+eg_define('FORMFLOW_DB_USER', Env::get('FORMFLOW_DB_USER', ''));
+eg_define('FORMFLOW_DB_PASS', Env::get('FORMFLOW_DB_PASS', ''));
+eg_define('FORMFLOW_DB_HOST', Env::get('FORMFLOW_DB_HOST', ''));      // blangko = DB_HOST
+eg_define('ATTENDANCE_DB_USER', Env::get('ATTENDANCE_DB_USER', ''));
+eg_define('ATTENDANCE_DB_PASS', Env::get('ATTENDANCE_DB_PASS', ''));
+eg_define('ATTENDANCE_DB_HOST', Env::get('ATTENDANCE_DB_HOST', ''));  // blangko = DB_HOST
 
 // ── Optional: link back to the main FormFlow app (leave '' to hide the link) ──
 eg_define('FORMFLOW_APP_URL', Env::get('FORMFLOW_APP_URL', ''));
