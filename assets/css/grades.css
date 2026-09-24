@@ -2252,6 +2252,32 @@ table.gs tbody td.fin-cell {
     background: color-mix(in srgb, var(--accent3) 10%, transparent);
 }
 
+/* Ayos na 2 · 1 · 3, gaya ng podium sa share page. Sa makitid na screen
+   (isang hanay) ay ibinabalik sa 1 · 2 · 3 — tingnan ang @media sa ibaba. */
+.rk-pod-2 { order: -1; }
+
+/* Magkatabla sa iisang puwesto: bawat pangalan ay isang linya lang */
+.rk-pod-name + .rk-pod-name { margin-top: .1rem; }
+
+.rk-pod-more {
+    font-size: .7rem;
+    color: var(--muted);
+    margin-top: .1rem;
+}
+
+.rk-pod-tie {
+    display: inline-block;
+    margin-top: .3rem;
+    padding: .05rem .45rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: .64rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
 .rk-medal { font-size: 1.35rem; line-height: 1.1; }
 
 .rk-pod-name {
@@ -2364,6 +2390,7 @@ table.gs tbody td.fin-cell {
 
 @media (max-width: 480px) {
     .rk-podium { grid-template-columns: 1fr; }
+    .rk-pod-2 { order: 0; }   /* nakapatong na: #1 sa itaas */
 }
 
 /* ── Share ranking (public na link) ──────────────────────────────────── */

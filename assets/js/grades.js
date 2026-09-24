@@ -3382,15 +3382,34 @@ function openRanking() {
     if (!ranked.length) {
         html += `<div class="bd-empty">No one is graded yet — add a score and the ranking fills in.</div>`;
     } else {
-        /* Podium — medalya ayon sa RANGGO, hindi sa pagkakasunod, kaya ang
-           tabla ay hindi nagsisinungaling kapag may pantay (1, 2, 2 → 🥇🥈🥈). */
-        html += `<div class="rk-podium">` + ranked.slice(0, 3).map(r => `
-            <div class="rk-pod rk-pod-${Math.min(r.rank, 3)}">
-                <div class="rk-medal">${RANK_MEDAL[Math.min(r.rank, 3) - 1]}</div>
-                <div class="rk-pod-name">${escHtml(r.s.fullname || '')}</div>
-                <div class="rk-pod-val">${val(r)}</div>
-                <div class="rk-pod-sub">${tail(r)}</div>
-            </div>`).join('') + `</div>`;
+        /* Podium — tatlong PUWESTO (#1, #2, #3), hindi tatlong tao, gaya ng share
+           page. Dati ay ranked.slice(0, 3): kapag dalawa ang tabla sa #1, dalawang
+           card ang #1 at nawawala ang #3 — iba sa nakikita ng klase sa link.
+           Isang card bawat puwesto; ang magkatabla ay magkasama sa iisang card, at
+           ang grado ay isang beses lang (pareho naman sila). Walang nilalaktawang
+           numero ang ranggo, kaya ang rank ≤ 3 ay laging ang unang tatlong grupo. */
+        const places = [];
+        for (const r of ranked) {
+            if (r.rank > 3) break;
+            const last = places[places.length - 1];
+            if (last && last.rank === r.rank) last.rows.push(r);
+            else places.push({ rank: r.rank, rows: [r] });
+        }
+        const NAMES_MAX = 3;   // katulad ng $NAMES_MAX sa app/Views/share.php
+        html += `<div class="rk-podium">` + places.map(p => {
+            const n = p.rows.length, r0 = p.rows[0];
+            const names = p.rows.slice(0, NAMES_MAX)
+                .map(r => `<div class="rk-pod-name">${escHtml(r.s.fullname || '')}</div>`).join('')
+                + (n > NAMES_MAX ? `<div class="rk-pod-more">+${n - NAMES_MAX} more below</div>` : '');
+            return `
+            <div class="rk-pod rk-pod-${p.rank}">
+                <div class="rk-medal">${RANK_MEDAL[p.rank - 1]}</div>
+                ${names}
+                <div class="rk-pod-val">${val(r0)}</div>
+                <div class="rk-pod-sub">${tail(r0)}</div>
+                ${n > 1 ? `<div class="rk-pod-tie">${n} tied</div>` : ''}
+            </div>`;
+        }).join('') + `</div>`;
 
         html += `<table class="rk-table"><thead><tr>
                     <th class="rk-c-rank">#</th><th>Student</th>

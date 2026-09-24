@@ -422,7 +422,11 @@ token and the old URL stays dead.
   `share.php` groups tied rows under one number and never splits a tie. The
   podium is **three places, not three people**: the first three rank groups
   (rank ≤ 3, so an old 1,1,3 snapshot still renders) in 2·1·3 order, with one
-  pedestal per place. A tied place shows at most `$STACK_MAX` overlapping
+  pedestal per place. The teacher's modal (`openRanking()`) follows the same
+  rule: one card per place in 2·1·3 order (1·2·3 when stacked on a phone),
+  ties in one card, names capped at `NAMES_MAX` to match `$NAMES_MAX`. It used
+  to show the first three *people*, so a tie at #1 hid #3 from the modal while
+  the students' page showed it. A tied place shows at most `$STACK_MAX` overlapping
   avatars followed by "+N", and at most `$NAMES_MAX` names followed by "+N more
   below". Any podium group over that cap is repeated in full under **Tied on
   the podium**, so a big tie never stretches one column, and every name stays
