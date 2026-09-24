@@ -3322,11 +3322,16 @@ function buildRanking() {
         ranked.push({ s, val: v });
     });
     /* Ang pagkakasunod at ang ranggo ay pareho ang batayan: ang IPINAPAKITANG
-       2 desimal. Kung raw na halaga ang pagbabatayan ng pagkakasunod, dalawang
-       estudyanteng kapwa "90.00" ang nakasulat ay maaaring magkaiba ng puwesto
-       dahil sa hindi nakikitang 90.004 — walang maipaliwanag ang guro doon.
-       Alpabetiko ang loob ng pantay na grupo, hindi ayon sa roster. */
-    const shown = r => Number(r.val.toFixed(2));
+       grado, sa MISMONG dami ng desimal na ipinapakita ng rankCells() — 2 sa
+       term mode (General Ave), 1 sa flat mode (%). Kung raw na halaga ang
+       pagbabatayan, dalawang estudyanteng kapwa "90.0%" ang nakasulat ay
+       maaaring magkaiba ng puwesto dahil sa hindi nakikitang 90.04 vs 90.01 —
+       walang maipaliwanag ang guro doon. (Dati ay laging 2 desimal, kaya sa
+       flat mode ay nangyari mismo iyon.) Kapag binago ang desimal sa
+       rankCells(), baguhin din ito. Alpabetiko ang loob ng pantay na grupo,
+       hindi ayon sa roster. */
+    const dp = SHEET.term_mode === true ? 2 : 1;
+    const shown = r => Number(r.val.toFixed(dp));
     ranked.sort((a, b) => (shown(b) - shown(a))
         || (a.s.fullname || '').localeCompare(b.s.fullname || ''));
     /* Pantay na grado = pantay na ranggo, at WALANG nilalaktawang numero
@@ -3336,7 +3341,7 @@ function buildRanking() {
        ay puwesto ayon sa GRADO, hindi bilang ng taong nauna. */
     let rank = 0, prev = null;
     ranked.forEach(r => {
-        const k = r.val.toFixed(2);
+        const k = r.val.toFixed(dp);
         if (k !== prev) { rank++; prev = k; }
         r.rank = rank;
     });

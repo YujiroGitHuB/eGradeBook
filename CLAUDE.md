@@ -412,7 +412,10 @@ token and the old URL stays dead.
   `grades.js`, used by the modal and the share link): ties share a number and
   the next grade gets the next number, so two students tied at #1 are followed
   by #2, not #3. The "standard" 1, 1, 3 made students ask "we only tied, so why
-  am I 3?" on a public page with no teacher there to explain. As a result,
+  am I 3?" on a public page with no teacher there to explain. A tie is decided
+  at the **precision `rankCells()` displays**: 2 decimals in term mode, 1 in
+  flat mode. It used to be 2 in both, so in flat mode two students both shown
+  as "90.0%" could land at #1 and #2. As a result,
   **Top N counts people, not rank numbers**: `cleanRows()` keeps a row while
   fewer than N people rank ahead of it, and the whole tie at the cutoff stays
   in. A plain `rank <= N` would let Top 3 of 1,1,1,2,2,3,3 hold seven people.
